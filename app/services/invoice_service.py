@@ -6,10 +6,10 @@ Invoice Service
 This file contains the business logic for invoices.
 
 Responsibilities:
-• Generate invoice numbers
-• Generate current date and time
-• Calculate invoice totals
-• Create invoice data dictionaries
+- Generate invoice numbers
+- Generate current date and time
+- Calculate invoice totals
+- Create invoice data dictionaries
 
 NOTE:
 This file DOES NOT communicate directly with SQLite.
@@ -84,35 +84,31 @@ def get_current_time():
 # Calculate Totals
 # =========================================================
 
-def calculate_totals(items, vat_rate=0.15):
+def calculate_totals(items):
     """
     items should be:
 
     [
         {
-            "description":"Garden Service",
-            "quantity":2,
-            "unit_price":500
+            "description": "Garden Service",
+            "quantity": 2,
+            "unit_price": 500
         }
     ]
+
+    No VAT is applied — InvoiceFlow SA targets small
+    businesses that are typically not VAT registered.
     """
 
     subtotal = 0
 
     for item in items:
-
         line_total = item["quantity"] * item["unit_price"]
-
         subtotal += line_total
-
-    vat = subtotal * vat_rate
-
-    total = subtotal + vat
 
     return {
         "subtotal": round(subtotal, 2),
-        "vat": round(vat, 2),
-        "total": round(total, 2)
+        "total": round(subtotal, 2)
     }
 
 
@@ -148,7 +144,7 @@ def create_invoice(customer_id, items):
         "invoice_date": invoice_date,
         "invoice_time": invoice_time,
         "subtotal": totals["subtotal"],
-        "vat": totals["vat"],
+        "vat": 0,
         "total": totals["total"]
     }
 
