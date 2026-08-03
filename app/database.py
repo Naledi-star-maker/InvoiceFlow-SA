@@ -93,6 +93,155 @@ def get_company_info():
 
     return company
 
+def update_company_info(data):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE company SET
+            business_name = ?, owner_name = ?, address = ?, city = ?,
+            province = ?, postal_code = ?, phone = ?, email = ?,
+            logo_path = ?, bank_name = ?, account_holder = ?,
+            account_number = ?, branch_code = ?, account_type = ?,
+            reference_prefix = ?, signature_path = ?
+        WHERE id = 1
+    """, (
+        data["business_name"], data["owner_name"], data["address"],
+        data["city"], data["province"], data["postal_code"],
+        data["phone"], data["email"], data["logo_path"],
+        data["bank_name"], data["account_holder"], data["account_number"],
+        data["branch_code"], data["account_type"],
+        data["reference_prefix"], data["signature_path"]
+    ))
+
+    connection.commit()
+    connection.close()
+def create_customers_table():
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_name TEXT NOT NULL,
+            business_name TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            city TEXT,
+            province TEXT,
+            postal_code TEXT,
+            notes TEXT
+        )
+    """)
+
+    connection.commit()
+    connection.close()
+
+def add_customer(data):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        INSERT INTO customers (
+            customer_name, business_name, phone, email,
+            address, city, province, postal_code, notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data["customer_name"], data["business_name"], data["phone"],
+        data["email"], data["address"], data["city"],
+        data["province"], data["postal_code"], data["notes"]
+    ))
+
+    connection.commit()
+    connection.close()
+
+def get_all_customers():
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT * FROM customers ORDER BY customer_name ASC")
+    rows = cursor.fetchall()
+
+    connection.close()
+
+    customers = []
+    for row in rows:
+        customers.append({
+            "id": row[0],
+            "customer_name": row[1],
+            "business_name": row[2],
+            "phone": row[3],
+            "email": row[4],
+            "address": row[5],
+            "city": row[6],
+            "province": row[7],
+            "postal_code": row[8],
+            "notes": row[9]
+        })
+
+    return customers
+
+def update_customer(customer_id, data):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        UPDATE customers SET
+            customer_name = ?, business_name = ?, phone = ?, email = ?,
+            address = ?, city = ?, province = ?, postal_code = ?, notes = ?
+        WHERE id = ?
+    """, (
+        data["customer_name"], data["business_name"], data["phone"],
+        data["email"], data["address"], data["city"],
+        data["province"], data["postal_code"], data["notes"], customer_id
+    ))
+
+    connection.commit()
+    connection.close()
+
+def delete_customer(customer_id):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+
+    connection.commit()
+    connection.close()
+
+def search_customers(keyword):
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    search_term = f"%{keyword}%"
+    cursor.execute("""
+        SELECT * FROM customers
+        WHERE customer_name LIKE ? OR business_name LIKE ? OR phone LIKE ? OR email LIKE ?
+        ORDER BY customer_name ASC
+    """, (search_term, search_term, search_term, search_term))
+
+    rows = cursor.fetchall()
+    connection.close()
+
+    customers = []
+    for row in rows:
+        customers.append({
+            "id": row[0],
+            "customer_name": row[1],
+            "business_name": row[2],
+            "phone": row[3],
+            "email": row[4],
+            "address": row[5],
+            "city": row[6],
+            "province": row[7],
+            "postal_code": row[8],
+            "notes": row[9]
+        })
+
+    return customers
+
 if __name__ == "__main__":
     create_tables()
+    create_customers_table()
     print("Database and tables created successfully.")
