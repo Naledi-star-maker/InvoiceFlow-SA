@@ -1,7 +1,6 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from database import save_company_info, get_company_info, update_company_info
-
+from app.database.database import save_company_info, get_company_info, update_company_info
 ctk.set_appearance_mode("light")
 
 PINK = "#F8C8DC"

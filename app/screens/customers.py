@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import messagebox
-from database import (
+from app.database.database import (
     create_customers_table, add_customer, get_all_customers,
     update_customer, delete_customer, search_customers
 )
