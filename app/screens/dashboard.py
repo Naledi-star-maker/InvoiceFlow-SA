@@ -56,7 +56,12 @@ class DashboardFrame(ctk.CTkFrame):
             corner_radius=10, font=ctk.CTkFont(size=13, weight="bold")
         ).pack(side="left", padx=(0, 12))
 
-        for text, frame_key in [("Manage Customers", "customers"), ("View Reports", "reports"), ("Company Settings", "settings")]:
+        for text, frame_key in [
+            ("Manage Invoices", "manage_invoices"),
+            ("Manage Customers", "customers"),
+            ("View Reports", "reports"),
+            ("Company Settings", "settings")
+        ]:
             ctk.CTkButton(
                 actions_frame, text=text, height=42, width=170,
                 command=lambda k=frame_key: controller.show_frame(k),

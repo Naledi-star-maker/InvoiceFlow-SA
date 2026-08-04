@@ -14,34 +14,7 @@ from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 
-from app.database.database import get_invoice_by_id, get_company_info
-
-# Find one specific customer by id (small helper, not in database.py yet)
-from app.database.database import get_connection
-
-
-def get_customer_by_id(customer_id):
-    connection = get_connection()
-    cursor = connection.cursor()
-    cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id,))
-    row = cursor.fetchone()
-    connection.close()
-
-    if row is None:
-        return None
-
-    return {
-        "id": row[0],
-        "customer_name": row[1],
-        "business_name": row[2],
-        "phone": row[3],
-        "email": row[4],
-        "address": row[5],
-        "city": row[6],
-        "province": row[7],
-        "postal_code": row[8],
-        "notes": row[9]
-    }
+from app.database.database import get_invoice_by_id, get_company_info, get_customer_by_id
 
 
 PINK = colors.HexColor("#F4A6C6")

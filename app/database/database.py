@@ -251,6 +251,29 @@ def search_customers(keyword):
 
     return customers
 
+def get_customer_by_id(customer_id):
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM customers WHERE id = ?", (customer_id,))
+    row = cursor.fetchone()
+    connection.close()
+
+    if row is None:
+        return None
+
+    return {
+        "id": row[0],
+        "customer_name": row[1],
+        "business_name": row[2],
+        "phone": row[3],
+        "email": row[4],
+        "address": row[5],
+        "city": row[6],
+        "province": row[7],
+        "postal_code": row[8],
+        "notes": row[9]
+    }
+
 
 def create_invoices_table():
     connection = get_connection()

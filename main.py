@@ -9,6 +9,7 @@ from app.database.database import (
 
 from app.screens.dashboard import DashboardFrame
 from app.screens.invoices import InvoiceFrame
+from app.screens.manage_invoices import ManageInvoiceFrame
 from app.screens.customers import CustomerFrame
 from app.screens.settings import SettingsFrame
 from app.screens.reports import ReportsFrame
@@ -59,6 +60,7 @@ class MainApp(ctk.CTk):
         nav_buttons = [
             ("Dashboard", "dashboard"),
             ("New Invoice", "invoices"),
+            ("Manage Invoices", "manage_invoices"),
             ("Customers", "customers"),
             ("Reports", "reports"),
             ("Company Settings", "settings"),
@@ -83,6 +85,7 @@ class MainApp(ctk.CTk):
         for FrameClass, key in [
             (DashboardFrame, "dashboard"),
             (InvoiceFrame, "invoices"),
+            (ManageInvoiceFrame, "manage_invoices"),
             (CustomerFrame, "customers"),
             (ReportsFrame, "reports"),
             (SettingsFrame, "settings"),

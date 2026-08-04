@@ -23,7 +23,8 @@ from datetime import datetime
 from app.database.database import (
     add_invoice,
     add_invoice_item,
-    get_next_invoice_number
+    get_next_invoice_number,
+    get_invoice_by_id
 )
 
 
@@ -116,7 +117,7 @@ def calculate_totals(items):
 # Create Invoice
 # =========================================================
 
-def create_invoice(customer_id, items):
+def create_invoice(customer_id, items, notes=""):
     """
     Creates a complete invoice.
 
@@ -145,7 +146,8 @@ def create_invoice(customer_id, items):
         "invoice_time": invoice_time,
         "subtotal": totals["subtotal"],
         "vat": 0,
-        "total": totals["total"]
+        "total": totals["total"],
+        "notes": notes
     }
 
     # Save invoice
@@ -165,3 +167,28 @@ def create_invoice(customer_id, items):
         add_invoice_item(item_data)
 
     return invoice_id
+
+
+# =========================================================
+# Duplicate Invoice (for month-end resends)
+# =========================================================
+
+def duplicate_invoice(source_invoice_id, items, notes=None):
+    """
+    Creates a NEW invoice for the same customer as an existing invoice,
+    with a freshly generated invoice number, date and time.
+
+    Used for month-end resends: reuse an old invoice's customer/items
+    as a starting point, optionally edit items/prices, and this
+    produces a new invoice record + new PDF — the original invoice
+    is left untouched.
+    """
+
+    source = get_invoice_by_id(source_invoice_id)
+    if source is None:
+        raise ValueError(f"No invoice found with id {source_invoice_id}")
+
+    if notes is None:
+        notes = source.get("notes", "") or ""
+
+    return create_invoice(source["customer_id"], items, notes)
