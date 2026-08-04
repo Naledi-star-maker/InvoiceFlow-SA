@@ -458,7 +458,145 @@ def search_invoices(keyword):
         })
 
     return invoices
+# =====================================================
+# REPORT FUNCTIONS
+# Used by the Dashboard and Reports screen
+# =====================================================
 
+def get_total_revenue():
+    """
+    Returns the total revenue from all invoices.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT SUM(total)
+        FROM invoices
+    """)
+
+    result = cursor.fetchone()
+
+    connection.close()
+
+    if result[0] is None:
+        return 0
+
+    return result[0]
+
+
+def get_total_customers():
+    """
+    Returns the number of customers.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM customers
+    """)
+
+    total = cursor.fetchone()[0]
+
+    connection.close()
+
+    return total
+
+
+def get_total_invoices():
+    """
+    Returns the number of invoices.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM invoices
+    """)
+
+    total = cursor.fetchone()[0]
+
+    connection.close()
+
+    return total
+
+
+def get_monthly_revenue():
+    """
+    Returns revenue grouped by month.
+
+    Example:
+
+    January 2026  -> R1500
+    February 2026 -> R3200
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT
+            substr(invoice_date,4,2) || '/' || substr(invoice_date,7,4) AS month,
+            SUM(total)
+        FROM invoices
+        GROUP BY month
+        ORDER BY invoice_date
+    """)
+
+    rows = cursor.fetchall()
+
+    connection.close()
+
+    monthly = []
+
+    for row in rows:
+
+        monthly.append({
+            "month": row[0],
+            "revenue": row[1]
+        })
+
+    return monthly
+
+
+def get_recent_invoices(limit=10):
+    """
+    Returns the latest invoices.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT
+            invoice_number,
+            invoice_date,
+            total
+        FROM invoices
+        ORDER BY id DESC
+        LIMIT ?
+    """, (limit,))
+
+    rows = cursor.fetchall()
+
+    connection.close()
+
+    invoices = []
+
+    for row in rows:
+
+        invoices.append({
+            "invoice_number": row[0],
+            "invoice_date": row[1],
+            "total": row[2]
+        })
+
+    return invoices
 
 if __name__ == "__main__":
     create_tables()
