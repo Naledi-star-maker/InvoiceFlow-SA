@@ -1,10 +1,12 @@
 import sqlite3
+from datetime import date, timedelta
 
 DATABASE_PATH = "database/invoiceflow.db"
 
 
 def get_connection():
     connection = sqlite3.connect(DATABASE_PATH)
+    connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
@@ -213,11 +215,35 @@ def update_customer(customer_id, data):
 def delete_customer(customer_id):
     connection = get_connection()
     cursor = connection.cursor()
+    try:
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            "SELECT COUNT(*) FROM invoices WHERE customer_id = ?",
+            (customer_id,)
+        )
+        if cursor.fetchone()[0]:
+            raise CustomerHasInvoicesError(
+                "This customer cannot be deleted because invoices are linked "
+                "to their account."
+            )
 
-    cursor.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+        cursor.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+        connection.commit()
+    except sqlite3.IntegrityError as error:
+        connection.rollback()
+        raise CustomerHasInvoicesError(
+            "This customer cannot be deleted because invoices are linked "
+            "to their account."
+        ) from error
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
-    connection.commit()
-    connection.close()
+
+class CustomerHasInvoicesError(ValueError):
+    """Raised when a customer with linked invoices is deleted."""
 
 
 def search_customers(keyword):
@@ -294,6 +320,13 @@ def create_invoices_table():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS invoice_number_sequences (
+            invoice_year INTEGER PRIMARY KEY,
+            last_number INTEGER NOT NULL
+        )
+    """)
+
     connection.commit()
     connection.close()
 
@@ -318,16 +351,63 @@ def create_invoice_items_table():
     connection.close()
 
 
-def get_next_invoice_number():
+def _next_invoice_sequence(cursor, invoice_year):
+    prefix = f"INV-{invoice_year}-"
+    cursor.execute(
+        "SELECT invoice_number FROM invoices WHERE invoice_number LIKE ?",
+        (f"{prefix}%",)
+    )
+    highest_existing = 0
+    for (invoice_number,) in cursor.fetchall():
+        suffix = invoice_number[len(prefix):]
+        if suffix.isdigit():
+            highest_existing = max(highest_existing, int(suffix))
+
+    cursor.execute(
+        "SELECT last_number FROM invoice_number_sequences WHERE invoice_year = ?",
+        (invoice_year,)
+    )
+    sequence_row = cursor.fetchone()
+    last_number = max(
+        highest_existing,
+        sequence_row[0] if sequence_row else 0
+    )
+    next_number = last_number + 1
+
+    cursor.execute("""
+        INSERT INTO invoice_number_sequences (invoice_year, last_number)
+        VALUES (?, ?)
+        ON CONFLICT(invoice_year) DO UPDATE SET last_number = excluded.last_number
+    """, (invoice_year, next_number))
+    return next_number
+
+
+def get_next_invoice_number(invoice_year=None):
     connection = get_connection()
     cursor = connection.cursor()
-
-    cursor.execute("SELECT COUNT(*) FROM invoices")
-    count = cursor.fetchone()[0]
-
-    connection.close()
-
-    return count + 1
+    year = invoice_year if invoice_year is not None else date.today().year
+    try:
+        cursor.execute(
+            "SELECT last_number FROM invoice_number_sequences WHERE invoice_year = ?",
+            (year,)
+        )
+        sequence_row = cursor.fetchone()
+        cursor.execute(
+            "SELECT invoice_number FROM invoices WHERE invoice_number LIKE ?",
+            (f"INV-{year}-%",)
+        )
+        prefix = f"INV-{year}-"
+        existing_numbers = [
+            int(number[len(prefix):])
+            for (number,) in cursor.fetchall()
+            if number[len(prefix):].isdigit()
+        ]
+        last_number = max(
+            [sequence_row[0] if sequence_row else 0, *existing_numbers]
+        )
+        return last_number + 1
+    finally:
+        connection.close()
 
 
 def add_invoice(data):
@@ -370,6 +450,55 @@ def add_invoice_item(data):
 
     connection.commit()
     connection.close()
+
+
+def create_invoice_with_items(data, items):
+    """Atomically assign a year-based invoice number and save its items."""
+    invoice_date = date.fromisoformat(data["invoice_date"])
+    connection = get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_number_sequences (
+                invoice_year INTEGER PRIMARY KEY,
+                last_number INTEGER NOT NULL
+            )
+        """)
+        sequence = _next_invoice_sequence(cursor, invoice_date.year)
+        invoice_number = f"INV-{invoice_date.year}-{sequence:05d}"
+        cursor.execute("""
+            INSERT INTO invoices (
+                invoice_number, customer_id, invoice_date, invoice_time,
+                subtotal, vat, total, notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            invoice_number, data["customer_id"], data["invoice_date"],
+            data["invoice_time"], data["subtotal"], data["vat"],
+            data["total"], data.get("notes", "")
+        ))
+        invoice_id = cursor.lastrowid
+
+        cursor.executemany("""
+            INSERT INTO invoice_items (
+                invoice_id, description, quantity, unit_price, line_total
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, [
+            (
+                invoice_id, item["description"], item["quantity"],
+                item["unit_price"], item["line_total"]
+            )
+            for item in items
+        ])
+        connection.commit()
+        return invoice_id
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def get_all_invoices():
@@ -486,27 +615,101 @@ def search_invoices(keyword):
 # Used by the Dashboard and Reports screen
 # =====================================================
 
-def get_total_revenue():
-    """
-    Returns the total revenue from all invoices.
-    """
+def get_business_statistics(reference_date=None):
+    """Return invoiced-revenue statistics based on ISO invoice dates."""
+    today = reference_date or date.today()
+    month_start = today.replace(day=1)
+    previous_month_end = month_start
+    previous_month_start = (month_start - timedelta(days=1)).replace(day=1)
+    year_start = date(today.year, 1, 1)
+    year_to_date_end = today + timedelta(days=1)
+    if month_start.month == 12:
+        next_month_start = date(month_start.year + 1, 1, 1)
+    else:
+        next_month_start = date(month_start.year, month_start.month + 1, 1)
 
     connection = get_connection()
     cursor = connection.cursor()
+    try:
+        cursor.execute("""
+            SELECT
+                COALESCE(SUM(CASE
+                    WHEN invoice_date >= ? AND invoice_date < ? THEN total
+                    ELSE 0
+                END), 0),
+                COALESCE(SUM(CASE
+                    WHEN invoice_date >= ? AND invoice_date < ? THEN total
+                    ELSE 0
+                END), 0),
+                COALESCE(SUM(CASE
+                    WHEN invoice_date >= ? AND invoice_date < ? THEN total
+                    ELSE 0
+                END), 0),
+                COUNT(*),
+                COALESCE(AVG(total), 0)
+            FROM invoices
+            WHERE length(invoice_date) = 10
+        """, (
+            month_start.isoformat(), next_month_start.isoformat(),
+            previous_month_start.isoformat(), previous_month_end.isoformat(),
+            year_start.isoformat(), year_to_date_end.isoformat()
+        ))
+        current, previous, year_to_date, invoice_count, average = cursor.fetchone()
 
-    cursor.execute("""
-        SELECT SUM(total)
-        FROM invoices
-    """)
+        percentage_change = None
+        if previous:
+            percentage_change = (current - previous) / previous * 100
 
-    result = cursor.fetchone()
+        cursor.execute("""
+            SELECT substr(invoice_date, 1, 7) AS month, SUM(total) AS revenue
+            FROM invoices
+            WHERE length(invoice_date) = 10
+            GROUP BY month
+            ORDER BY month
+        """)
+        monthly_revenue = [
+            {"month": row[0], "revenue": row[1]}
+            for row in cursor.fetchall()
+        ]
 
-    connection.close()
+        cursor.execute("""
+            SELECT customers.id, customers.customer_name, SUM(invoices.total) AS revenue
+            FROM invoices
+            JOIN customers ON customers.id = invoices.customer_id
+            GROUP BY customers.id, customers.customer_name
+            ORDER BY revenue DESC, customers.customer_name COLLATE NOCASE
+            LIMIT 5
+        """)
+        best_customers = [
+            {
+                "customer_id": row[0],
+                "customer_name": row[1],
+                "revenue": row[2]
+            }
+            for row in cursor.fetchall()
+        ]
 
-    if result[0] is None:
-        return 0
+        return {
+            "current_month_revenue": current,
+            "previous_month_revenue": previous,
+            "percentage_change": percentage_change,
+            "year_to_date_revenue": year_to_date,
+            "total_invoices": invoice_count,
+            "average_invoice_value": average,
+            "monthly_revenue": monthly_revenue,
+            "best_customers": best_customers
+        }
+    finally:
+        connection.close()
 
-    return result[0]
+
+def get_total_revenue():
+    connection = get_connection()
+    try:
+        result = connection.execute("SELECT COALESCE(SUM(total), 0) FROM invoices")
+        return result.fetchone()[0]
+    finally:
+        connection.close()
 
 
 def get_total_customers():
@@ -515,18 +718,10 @@ def get_total_customers():
     """
 
     connection = get_connection()
-    cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM customers
-    """)
-
-    total = cursor.fetchone()[0]
-
-    connection.close()
-
-    return total
+    try:
+        return connection.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
+    finally:
+        connection.close()
 
 
 def get_total_invoices():
@@ -535,18 +730,10 @@ def get_total_invoices():
     """
 
     connection = get_connection()
-    cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM invoices
-    """)
-
-    total = cursor.fetchone()[0]
-
-    connection.close()
-
-    return total
+    try:
+        return connection.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
+    finally:
+        connection.close()
 
 
 def get_monthly_revenue():
@@ -559,32 +746,7 @@ def get_monthly_revenue():
     February 2026 -> R3200
     """
 
-    connection = get_connection()
-    cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT
-            substr(invoice_date,4,2) || '/' || substr(invoice_date,7,4) AS month,
-            SUM(total)
-        FROM invoices
-        GROUP BY month
-        ORDER BY invoice_date
-    """)
-
-    rows = cursor.fetchall()
-
-    connection.close()
-
-    monthly = []
-
-    for row in rows:
-
-        monthly.append({
-            "month": row[0],
-            "revenue": row[1]
-        })
-
-    return monthly
+    return get_business_statistics()["monthly_revenue"]
 
 
 def get_recent_invoices(limit=10):

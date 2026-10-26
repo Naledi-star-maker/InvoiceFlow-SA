@@ -1,6 +1,9 @@
 import customtkinter as ctk
-from datetime import datetime
-from app.database.database import get_all_customers, get_all_invoices, get_company_info
+from app.database.database import (
+    get_all_invoices, get_business_statistics, get_company_info,
+    get_total_customers
+)
+from app.utils import format_currency
 
 PINK = "#F8C8DC"
 PINK_DARK = "#F4A6C6"
@@ -29,7 +32,7 @@ class DashboardFrame(ctk.CTkFrame):
 
         ctk.CTkLabel(
             self.scroll, 
-            text="Here's what's happening with your invoices.", 
+            text="Invoiced revenue reflects invoice totals, not payments received or profit.",
             font=ctk.CTkFont(size=13), 
             text_color=PINK_TEXT
         ).pack(anchor="w", pady=(0, 20))
@@ -99,10 +102,23 @@ class DashboardFrame(ctk.CTkFrame):
             widget.destroy()
 
         stats = self._calculate_stats()
-        self._add_stat_card(self.cards_frame, "Total Customers", str(stats["total_customers"]))
-        self._add_stat_card(self.cards_frame, "Total Invoices", str(stats["total_invoices"]))
-        self._add_stat_card(self.cards_frame, "Invoices This Month", str(stats["invoices_this_month"]))
-        self._add_stat_card(self.cards_frame, "Revenue This Month", f"R{stats['revenue_this_month']:.2f}")
+        cards = [
+            ("This month's invoiced revenue", format_currency(stats["current_month_revenue"])),
+            ("Previous month's invoiced revenue", format_currency(stats["previous_month_revenue"])),
+            ("Change vs. previous month", (
+                f"{stats['percentage_change']:+.1f}%"
+                if stats["percentage_change"] is not None else "No prior-month baseline"
+            )),
+            ("Year-to-date invoiced revenue", format_currency(stats["year_to_date_revenue"])),
+            ("Total invoices", str(stats["total_invoices"])),
+            ("Average invoice value", format_currency(stats["average_invoice_value"])),
+            ("Customers", str(get_total_customers())),
+        ]
+        for index, (label, value) in enumerate(cards):
+            self._add_stat_card(
+                self.cards_frame, label, value,
+                row=index // 4, column=index % 4
+            )
 
         # Reset recent invoices
         for widget in self.recent_frame.winfo_children():
@@ -125,7 +141,7 @@ class DashboardFrame(ctk.CTkFrame):
             ctk.CTkLabel(header, text="Invoice #", text_color=PINK_DARK, width=140, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left", padx=12, pady=10)
             ctk.CTkLabel(header, text="Customer", text_color=PINK_DARK, width=250, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left", padx=12)
             ctk.CTkLabel(header, text="Date", text_color=PINK_DARK, width=120, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left", padx=12)
-            ctk.CTkLabel(header, text="Total", text_color=PINK_DARK, width=100, anchor="e", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=12)
+            ctk.CTkLabel(header, text="Invoiced Total", text_color=PINK_DARK, width=120, anchor="e", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=12)
 
             # Rows
             for index, invoice in enumerate(invoices):
@@ -136,9 +152,9 @@ class DashboardFrame(ctk.CTkFrame):
                 ctk.CTkLabel(row, text=invoice["invoice_number"], text_color=PINK_TEXT, width=140, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left", padx=12, pady=8)
                 ctk.CTkLabel(row, text=invoice["customer_name"], text_color=PINK_TEXT, width=250, anchor="w").pack(side="left", padx=12)
                 ctk.CTkLabel(row, text=invoice["invoice_date"], text_color=PINK_TEXT, width=120, anchor="w").pack(side="left", padx=12)
-                ctk.CTkLabel(row, text=f"R{invoice['total']:.2f}", text_color=PINK_DARK, width=100, anchor="e", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=12)
+                ctk.CTkLabel(row, text=format_currency(invoice["total"]), text_color=PINK_DARK, width=120, anchor="e", font=ctk.CTkFont(weight="bold")).pack(side="right", padx=12)
 
-    def _add_stat_card(self, parent, label_text, value_text):
+    def _add_stat_card(self, parent, label_text, value_text, row, column):
         # Structured Card Container
         card = ctk.CTkFrame(
             parent, 
@@ -146,10 +162,10 @@ class DashboardFrame(ctk.CTkFrame):
             border_color=BORDER_COLOR, 
             border_width=1, 
             corner_radius=12, 
-            width=200, 
-            height=100
+            width=210,
+            height=110
         )
-        card.pack(side="left", padx=(0, 15))
+        card.grid(row=row, column=column, sticky="ew", padx=(0, 12), pady=6)
         card.pack_propagate(False)
 
         # Center content cleanly inside card
@@ -159,26 +175,18 @@ class DashboardFrame(ctk.CTkFrame):
         ctk.CTkLabel(
             inner_frame, 
             text=value_text, 
-            font=ctk.CTkFont(size=22, weight="bold"), 
-            text_color=PINK_DARK
+            font=ctk.CTkFont(size=19, weight="bold"),
+            text_color=PINK_DARK,
+            wraplength=190
         ).pack()
         
         ctk.CTkLabel(
             inner_frame, 
             text=label_text, 
-            font=ctk.CTkFont(size=11), 
-            text_color=PINK_TEXT
+            font=ctk.CTkFont(size=10),
+            text_color=PINK_TEXT,
+            wraplength=190
         ).pack(pady=(2, 0))
 
     def _calculate_stats(self):
-        customers = get_all_customers()
-        invoices = get_all_invoices()
-        current_month = datetime.now().strftime("%Y-%m")
-        invoices_this_month = [i for i in invoices if i["invoice_date"].startswith(current_month)]
-        revenue_this_month = sum(i["total"] for i in invoices_this_month)
-        return {
-            "total_customers": len(customers),
-            "total_invoices": len(invoices),
-            "invoices_this_month": len(invoices_this_month),
-            "revenue_this_month": revenue_this_month
-        }
+        return get_business_statistics()

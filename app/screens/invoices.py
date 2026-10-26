@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import sqlite3
 from tkinter import messagebox
 from app.database.database import get_all_customers
 from app.services.invoice_service import create_invoice, calculate_totals
@@ -176,10 +177,21 @@ class InvoiceFrame(ctk.CTkFrame):
             messagebox.showerror("No Items", "Please add at least one item with a description.")
             return
 
-        invoice_id = create_invoice(customer["id"], items)
-        pdf_path = generate_invoice_pdf(invoice_id)
+        try:
+            invoice_id = create_invoice(customer["id"], items)
+        except (ValueError, sqlite3.Error) as error:
+            messagebox.showerror("Invoice Not Created", f"The invoice could not be saved:\n{error}")
+            return
 
-        messagebox.showinfo("Invoice Created", f"Invoice created and PDF saved to:\n{pdf_path}")
+        try:
+            pdf_path = generate_invoice_pdf(invoice_id)
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "Invoice Saved, PDF Not Created",
+                f"The invoice was saved, but its PDF could not be generated:\n{error}"
+            )
+        else:
+            messagebox.showinfo("Invoice Created", f"Invoice created and PDF saved to:\n{pdf_path}")
 
         for row in self.item_rows[1:]:
             row["frame"].destroy()
