@@ -2,7 +2,8 @@ import customtkinter as ctk
 from tkinter import messagebox
 from app.database.database import (
     create_customers_table, add_customer, get_all_customers,
-    update_customer, delete_customer, search_customers
+    update_customer, delete_customer, search_customers,
+    CustomerHasInvoicesError
 )
 
 PINK = "#F8C8DC"
@@ -207,9 +208,17 @@ class CustomerFrame(ctk.CTkFrame):
         if self.selected_customer_id is None:
             messagebox.showerror("No Customer Selected", "Please select a customer to delete.")
             return
-        confirm = messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this customer?")
+        confirm = messagebox.askyesno(
+            "Confirm Delete",
+            "Are you sure you want to delete this customer? "
+            "Customers with existing invoices cannot be deleted."
+        )
         if confirm:
-            delete_customer(self.selected_customer_id)
+            try:
+                delete_customer(self.selected_customer_id)
+            except CustomerHasInvoicesError as error:
+                messagebox.showerror("Customer Not Deleted", str(error))
+                return
             messagebox.showinfo("Deleted", "Customer deleted successfully.")
             self.clear_form()
             self.load_customers()

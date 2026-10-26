@@ -1,3 +1,4 @@
+import sqlite3
 import customtkinter as ctk
 from tkinter import messagebox
 
@@ -249,15 +250,27 @@ class ManageInvoiceFrame(ctk.CTkFrame):
 
         notes = self.notes_entry.get().strip()
 
-        new_invoice_id = duplicate_invoice(self.selected_invoice_id, items, notes)
-        pdf_path = generate_invoice_pdf(new_invoice_id)
-        new_invoice = get_invoice_by_id(new_invoice_id)
+        try:
+            new_invoice_id = duplicate_invoice(self.selected_invoice_id, items, notes)
+        except (ValueError, sqlite3.Error) as error:
+            messagebox.showerror("Invoice Not Created", f"The new invoice could not be saved:\n{error}")
+            return
 
-        messagebox.showinfo(
-            "Invoice Regenerated",
-            f"New invoice {new_invoice['invoice_number']} created (dated {new_invoice['invoice_date']}) "
-            f"and PDF saved to:\n{pdf_path}"
-        )
+        new_invoice = get_invoice_by_id(new_invoice_id)
+        try:
+            pdf_path = generate_invoice_pdf(new_invoice_id)
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "Invoice Saved, PDF Not Created",
+                f"New invoice {new_invoice['invoice_number']} was saved, "
+                f"but its PDF could not be generated:\n{error}"
+            )
+        else:
+            messagebox.showinfo(
+                "Invoice Regenerated",
+                f"New invoice {new_invoice['invoice_number']} created "
+                f"(dated {new_invoice['invoice_date']}) and PDF saved to:\n{pdf_path}"
+            )
 
         self.selected_invoice_id = None
         self.selected_customer_id = None

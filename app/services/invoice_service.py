@@ -21,8 +21,7 @@ from datetime import datetime
 
 # Import database functions
 from app.database.database import (
-    add_invoice,
-    add_invoice_item,
+    create_invoice_with_items,
     get_next_invoice_number,
     get_invoice_by_id
 )
@@ -43,7 +42,7 @@ def generate_invoice_number():
 
     current_year = datetime.now().year
 
-    next_number = get_next_invoice_number()
+    next_number = get_next_invoice_number(current_year)
 
     return f"INV-{current_year}-{next_number:05d}"
 
@@ -131,17 +130,12 @@ def create_invoice(customer_id, items, notes=""):
     • Saves invoice items
     """
 
-    invoice_number = generate_invoice_number()
-
     invoice_date = get_current_date()
-
     invoice_time = get_current_time()
-
     totals = calculate_totals(items)
 
     invoice_data = {
         "customer_id": customer_id,
-        "invoice_number": invoice_number,
         "invoice_date": invoice_date,
         "invoice_time": invoice_time,
         "subtotal": totals["subtotal"],
@@ -150,23 +144,16 @@ def create_invoice(customer_id, items, notes=""):
         "notes": notes
     }
 
-    # Save invoice
-    invoice_id = add_invoice(invoice_data)
-
-    # Save each invoice line
-    for item in items:
-
-        item_data = {
-            "invoice_id": invoice_id,
+    invoice_items = [
+        {
             "description": item["description"],
             "quantity": item["quantity"],
             "unit_price": item["unit_price"],
             "line_total": item["quantity"] * item["unit_price"]
         }
-
-        add_invoice_item(item_data)
-
-    return invoice_id
+        for item in items
+    ]
+    return create_invoice_with_items(invoice_data, invoice_items)
 
 
 # =========================================================
