@@ -1,206 +1,303 @@
-import customtkinter as ctk
+import math
 import sqlite3
-from tkinter import messagebox
-from app.database.database import get_all_customers
-from app.services.invoice_service import create_invoice, calculate_totals
-from app.services.pdf_generator import generate_invoice_pdf
 
-PINK = "#F8C8DC"
-PINK_DARK = "#F4A6C6"
-PINK_TEXT = "#C38699"
-WHITE = "#FFFFFF"
-ROW_BG = "#FDEFF3"
+import customtkinter as ctk
+
+from app.database.database import get_all_customers
+from app.services.invoice_service import calculate_totals, create_invoice
+from app.services.pdf_generator import generate_invoice_pdf
+from app.theme import (
+    BG,
+    BORDER,
+    DANGER,
+    FONT_SIZE,
+    SECONDARY,
+    SURFACE,
+    TEXT,
+    card,
+    labeled_dropdown,
+    labeled_entry,
+    page_header,
+    primary_button,
+    secondary_button,
+    set_inline_error,
+    toast,
+    font,
+)
 
 
 class InvoiceFrame(ctk.CTkFrame):
     def __init__(self, parent, controller):
-        super().__init__(parent, fg_color=WHITE)
+        super().__init__(parent, fg_color=BG)
         self.controller = controller
         self.item_rows = []
         self.customers = []
 
-        top_frame = ctk.CTkFrame(self, fg_color=WHITE)
-        top_frame.pack(fill="x", padx=20, pady=(20, 10))
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color=BG)
+        self.scroll.pack(fill="both", expand=True, padx=24, pady=(24, 0))
+        self.scroll.grid_columnconfigure(0, weight=1)
+        page_header(
+            self.scroll,
+            "New invoice",
+            "Create an invoice with a customer and one or more line items.",
+        ).pack(fill="x", pady=(0, 20))
 
-        ctk.CTkLabel(top_frame, text="New Invoice", font=ctk.CTkFont(size=22, weight="bold"), text_color=PINK_DARK).pack(side="left")
-
-        ctk.CTkButton(
-            top_frame, text="Refresh Customers", width=140, command=self.refresh_customers,
-            fg_color=WHITE, hover_color="#F0F0F0", text_color=PINK_TEXT,
-            border_color=PINK, border_width=1
-        ).pack(side="right")
-
-        customer_frame = ctk.CTkFrame(self, fg_color=WHITE)
-        customer_frame.pack(fill="x", padx=20, pady=5)
-
-        ctk.CTkLabel(customer_frame, text="Select Customer *", text_color=PINK_TEXT, anchor="w").pack(side="left", padx=(0, 10))
-
-        self.customer_dropdown = ctk.CTkOptionMenu(
-            customer_frame, values=["No customers yet"], width=300,
-            fg_color=PINK, button_color=PINK_DARK, button_hover_color=PINK_DARK,
-            text_color=PINK_TEXT
+        customer_card = card(self.scroll)
+        customer_card.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(
+            customer_card, text="Customer", text_color=TEXT,
+            font=font(FONT_SIZE["heading"], "bold"),
+        ).pack(anchor="w", padx=16, pady=(16, 8))
+        customer_row = ctk.CTkFrame(customer_card, fg_color="transparent")
+        customer_row.pack(fill="x", padx=16, pady=(0, 16))
+        customer_row.grid_columnconfigure(0, weight=1)
+        self.customer_dropdown = labeled_dropdown(
+            customer_row, "Select a customer *", ["No customers yet"]
         )
-        self.customer_dropdown.pack(side="left")
+        self.customer_dropdown.field_container.grid(
+            row=0, column=0, sticky="ew", padx=(0, 12)
+        )
+        secondary_button(
+            customer_row, "Refresh customers", command=self.refresh_customers,
+            width=150, height=38,
+        ).grid(row=0, column=1, sticky="e", pady=(22, 0))
+        self.customer_error = ctk.CTkLabel(
+            customer_card, text="", text_color=DANGER, font=font(FONT_SIZE["small"])
+        )
+        self.customer_error.pack(anchor="w", padx=16, pady=(0, 12))
 
-        ctk.CTkLabel(self, text="Invoice Items", font=ctk.CTkFont(size=15, weight="bold"), text_color=PINK_DARK).pack(anchor="w", padx=20, pady=(15, 5))
-
-        header_frame = ctk.CTkFrame(self, fg_color=WHITE)
-        header_frame.pack(fill="x", padx=20)
-        ctk.CTkLabel(header_frame, text="Description", text_color=PINK_TEXT, width=380, anchor="w").pack(side="left", padx=5)
-        ctk.CTkLabel(header_frame, text="Qty", text_color=PINK_TEXT, width=70, anchor="w").pack(side="left", padx=5)
-        ctk.CTkLabel(header_frame, text="Unit Price (R)", text_color=PINK_TEXT, width=110, anchor="w").pack(side="left", padx=5)
-        ctk.CTkLabel(header_frame, text="Line Total", text_color=PINK_TEXT, width=100, anchor="w").pack(side="left", padx=5)
-
-        self.items_scroll = ctk.CTkScrollableFrame(self, fg_color=WHITE, height=220)
-        self.items_scroll.pack(fill="both", expand=True, padx=20, pady=5)
-
-        ctk.CTkButton(
-            self, text="+ Add Item", command=self.add_item_row,
-            fg_color=PINK, hover_color=PINK_DARK, text_color=PINK_TEXT, width=150
-        ).pack(anchor="w", padx=20, pady=5)
-
-        ctk.CTkLabel(self, text="Notes (optional)", text_color=PINK_TEXT, anchor="w").pack(fill="x", padx=20, pady=(10, 0))
-
-        self.notes_entry = ctk.CTkEntry(self, border_color=PINK, text_color=PINK_TEXT)
-        self.notes_entry.pack(fill="x", padx=20, pady=(2, 10))
-
-        totals_frame = ctk.CTkFrame(self, fg_color=WHITE)
-        totals_frame.pack(fill="x", padx=20, pady=5)
-
-        self.totals_label = ctk.CTkLabel(totals_frame, text="Total: R0.00", font=ctk.CTkFont(size=16, weight="bold"), text_color=PINK_DARK)
-        self.totals_label.pack(side="left")
-
-        ctk.CTkButton(
-            totals_frame, text="Recalculate Total", command=self.update_totals,
-            fg_color=WHITE, hover_color="#F0F0F0", text_color=PINK_TEXT,
-            border_color=PINK, border_width=1, width=160
+        items_card = card(self.scroll)
+        items_card.pack(fill="x", pady=(0, 16))
+        section_header = ctk.CTkFrame(items_card, fg_color="transparent")
+        section_header.pack(fill="x", padx=16, pady=(16, 8))
+        ctk.CTkLabel(
+            section_header, text="Line items", text_color=TEXT,
+            font=font(FONT_SIZE["heading"], "bold"),
+        ).pack(side="left")
+        secondary_button(
+            section_header, "+ Add item", command=self.add_item_row,
+            height=34,
         ).pack(side="right")
 
-        ctk.CTkButton(
-            self, text="Create Invoice", command=self.handle_create,
-            height=45, font=ctk.CTkFont(size=15, weight="bold"),
-            fg_color=PINK, hover_color=PINK_DARK, text_color=PINK_TEXT
-        ).pack(pady=15)
+        self.items_scroll = ctk.CTkScrollableFrame(
+            items_card, fg_color=SURFACE, height=220,
+        )
+        self.items_scroll.pack(fill="x", padx=12, pady=(0, 4))
+        self.items_error = ctk.CTkLabel(
+            items_card, text="", text_color=DANGER, font=font(FONT_SIZE["small"])
+        )
+        self.items_error.pack(anchor="w", padx=16, pady=(0, 8))
+
+        notes_card = card(self.scroll)
+        notes_card.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(
+            notes_card, text="Notes", text_color=TEXT,
+            font=font(FONT_SIZE["heading"], "bold"),
+        ).pack(anchor="w", padx=16, pady=(16, 8))
+        self.notes_entry = labeled_entry(
+            notes_card, "Optional note for this invoice",
+            placeholder="Add a short note",
+        )
+        self.notes_entry.field_container.pack(fill="x", padx=16, pady=(0, 16))
+
+        self.footer = ctk.CTkFrame(self, fg_color=SURFACE, border_color=BORDER, border_width=1)
+        self.footer.pack(fill="x", side="bottom")
+        footer_inner = ctk.CTkFrame(self.footer, fg_color="transparent")
+        footer_inner.pack(fill="x", padx=24, pady=12)
+        self.totals_label = ctk.CTkLabel(
+            footer_inner, text="Total: R 0.00", text_color=TEXT,
+            font=font(FONT_SIZE["title"], "bold"),
+        )
+        self.totals_label.pack(side="left")
+        self.subtotal_label = ctk.CTkLabel(
+            footer_inner, text="Subtotal: R 0.00  ·  VAT: R 0.00",
+            text_color=SECONDARY, font=font(FONT_SIZE["small"]),
+        )
+        self.subtotal_label.pack(side="left", padx=16)
+        self.create_button = primary_button(
+            footer_inner, "Create invoice", command=self.handle_create,
+            width=160, height=42,
+        )
+        self.create_button.pack(side="right")
 
         self.add_item_row()
+        self.refresh()
 
     def refresh(self):
         self.refresh_customers()
 
     def refresh_customers(self):
         self.customers = get_all_customers()
-        customer_names = [c["customer_name"] for c in self.customers]
-        if not customer_names:
-            customer_names = ["No customers yet — add one first"]
-        self.customer_dropdown.configure(values=customer_names)
-        self.customer_dropdown.set(customer_names[0])
+        customer_names = [customer["customer_name"] for customer in self.customers]
+        self.customer_dropdown.configure(
+            values=customer_names or ["No customers yet — add one first"]
+        )
+        self.customer_dropdown.set(
+            customer_names[0] if customer_names else "No customers yet — add one first"
+        )
 
     def add_item_row(self):
-        row_frame = ctk.CTkFrame(self.items_scroll, fg_color=ROW_BG)
-        row_frame.pack(fill="x", pady=3, padx=3)
+        row_frame = ctk.CTkFrame(self.items_scroll, fg_color=SURFACE)
+        row_frame.pack(fill="x", pady=4, padx=4)
+        row_frame.grid_columnconfigure(0, weight=5)
+        row_frame.grid_columnconfigure(1, weight=1)
+        row_frame.grid_columnconfigure(2, weight=2)
 
-        description_entry = ctk.CTkEntry(row_frame, width=370, border_color=PINK, text_color=PINK_TEXT)
-        description_entry.pack(side="left", padx=5, pady=6)
-
-        quantity_entry = ctk.CTkEntry(row_frame, width=60, border_color=PINK, text_color=PINK_TEXT)
-        quantity_entry.insert(0, "1")
-        quantity_entry.pack(side="left", padx=5)
-
-        price_entry = ctk.CTkEntry(row_frame, width=100, border_color=PINK, text_color=PINK_TEXT)
-        price_entry.insert(0, "0")
-        price_entry.pack(side="left", padx=5)
-
-        line_total_label = ctk.CTkLabel(row_frame, text="R0.00", width=90, text_color=PINK_TEXT)
-        line_total_label.pack(side="left", padx=5)
-
-        remove_button = ctk.CTkButton(
-            row_frame, text="Remove", width=70,
-            fg_color="#E88BA3", hover_color="#D66E88", text_color=WHITE,
-            command=lambda: self.remove_item_row(row_data)
+        description = labeled_entry(row_frame, "Description")
+        description.field_container.grid(
+            row=0, column=0, sticky="ew", padx=(8, 8), pady=8
         )
-        remove_button.pack(side="left", padx=5)
+        quantity = labeled_entry(row_frame, "Qty")
+        quantity.field_container.grid(
+            row=0, column=1, sticky="ew", padx=(0, 8), pady=8
+        )
+        quantity.insert(0, "1")
+        price = labeled_entry(row_frame, "Unit price (R)")
+        price.field_container.grid(
+            row=0, column=2, sticky="ew", padx=(0, 8), pady=8
+        )
+        price.insert(0, "0")
+        line_total_label = ctk.CTkLabel(
+            row_frame, text="R 0.00", text_color=TEXT,
+            font=font(FONT_SIZE["body"], "bold"), anchor="e",
+        )
+        line_total_label.grid(row=0, column=3, padx=8, pady=(28, 8), sticky="e")
+        remove_button = ctk.CTkButton(
+            row_frame, text="×", width=34, height=34,
+            fg_color="transparent", hover_color="#F4F4F5",
+            text_color=SECONDARY, corner_radius=8,
+            command=lambda: self.remove_item_row(row_data),
+        )
+        remove_button.grid(row=0, column=4, padx=8, pady=(24, 8))
 
         row_data = {
-            "frame": row_frame, "description": description_entry,
-            "quantity": quantity_entry, "price": price_entry,
-            "line_total_label": line_total_label
+            "frame": row_frame,
+            "description": description,
+            "quantity": quantity,
+            "price": price,
+            "line_total_label": line_total_label,
         }
-
-        quantity_entry.bind("<KeyRelease>", lambda e: self.update_totals())
-        price_entry.bind("<KeyRelease>", lambda e: self.update_totals())
-
+        quantity.bind("<KeyRelease>", lambda _event: self.update_totals())
+        price.bind("<KeyRelease>", lambda _event: self.update_totals())
         self.item_rows.append(row_data)
         self.update_totals()
 
     def remove_item_row(self, row_data):
         if len(self.item_rows) == 1:
-            messagebox.showwarning("Cannot Remove", "An invoice needs at least one item row.")
+            self.items_error.configure(text="An invoice needs at least one item row.")
             return
         row_data["frame"].destroy()
         self.item_rows.remove(row_data)
+        self.items_error.configure(text="")
         self.update_totals()
 
     def _collect_items(self):
         items = []
         for row in self.item_rows:
             description = row["description"].get().strip()
-            if description == "":
+            if not description:
                 continue
             try:
                 quantity = float(row["quantity"].get())
-            except ValueError:
-                quantity = 0
-            try:
                 price = float(row["price"].get())
             except ValueError:
+                quantity = 0
                 price = 0
             line_total = quantity * price
-            row["line_total_label"].configure(text=f"R{line_total:.2f}")
-            items.append({"description": description, "quantity": quantity, "unit_price": price})
+            row["line_total_label"].configure(text=f"R {line_total:,.2f}")
+            items.append(
+                {"description": description, "quantity": quantity, "unit_price": price}
+            )
         return items
 
     def update_totals(self):
         items = self._collect_items()
         totals = calculate_totals(items)
-        self.totals_label.configure(text=f"Total: R{totals['total']:.2f}")
+        self.subtotal_label.configure(
+            text=f"Subtotal: R {totals['subtotal']:,.2f}  ·  VAT: R 0.00"
+        )
+        self.totals_label.configure(text=f"Total: R {totals['total']:,.2f}")
 
     def handle_create(self):
         selected_name = self.customer_dropdown.get()
-        customer = next((c for c in self.customers if c["customer_name"] == selected_name), None)
-
+        customer = next(
+            (item for item in self.customers if item["customer_name"] == selected_name),
+            None,
+        )
         if customer is None:
-            messagebox.showerror("No Customer Selected", "Please select a valid customer. If none exist, add one in Customers first.")
+            self.customer_error.configure(text="Select a valid customer to continue.")
             return
+        self.customer_error.configure(text="")
 
         items = self._collect_items()
         if not items:
-            messagebox.showerror("No Items", "Please add at least one item with a description.")
+            self.items_error.configure(text="Add at least one item with a description.")
             return
+        invalid_row = next(
+            (
+                row for row in self.item_rows
+                if row["description"].get().strip()
+                and (
+                    not self._is_positive_number(row["quantity"].get())
+                    or not self._is_nonnegative_number(row["price"].get())
+                )
+            ),
+            None,
+        )
+        if invalid_row is not None:
+            self.items_error.configure(
+                text="Enter a quantity greater than zero and a valid non-negative unit price."
+            )
+            set_inline_error(invalid_row["quantity"], "Use a number greater than zero.")
+            return
+        self.items_error.configure(text="")
 
         try:
-            invoice_id = create_invoice(customer["id"], items)
+            invoice_id = create_invoice(
+                customer["id"], items, self.notes_entry.get().strip()
+            )
         except (ValueError, sqlite3.Error) as error:
-            messagebox.showerror("Invoice Not Created", f"The invoice could not be saved:\n{error}")
+            self.items_error.configure(text=f"Invoice could not be saved: {error}")
             return
 
         try:
             pdf_path = generate_invoice_pdf(invoice_id)
         except (OSError, ValueError) as error:
-            messagebox.showerror(
-                "Invoice Saved, PDF Not Created",
-                f"The invoice was saved, but its PDF could not be generated:\n{error}"
+            toast(
+                self, f"Invoice saved, but PDF could not be created: {error}", "error"
             )
         else:
-            messagebox.showinfo("Invoice Created", f"Invoice created and PDF saved to:\n{pdf_path}")
+            toast(self, f"Invoice created. PDF saved to {pdf_path}.", "success")
 
+        self._reset_form()
+        self.controller.frames["dashboard"].refresh()
+        self.controller.frames["manage_invoices"].refresh()
+
+    @staticmethod
+    def _is_positive_number(value):
+        try:
+            number = float(value)
+            return math.isfinite(number) and number > 0
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _is_nonnegative_number(value):
+        try:
+            number = float(value)
+            return math.isfinite(number) and number >= 0
+        except ValueError:
+            return False
+
+    def _reset_form(self):
         for row in self.item_rows[1:]:
             row["frame"].destroy()
         self.item_rows = self.item_rows[:1]
-        self.item_rows[0]["description"].delete(0, "end")
-        self.item_rows[0]["quantity"].delete(0, "end")
+        for key in ("description", "quantity", "price"):
+            self.item_rows[0][key].delete(0, "end")
         self.item_rows[0]["quantity"].insert(0, "1")
-        self.item_rows[0]["price"].delete(0, "end")
         self.item_rows[0]["price"].insert(0, "0")
         self.notes_entry.delete(0, "end")
+        self.customer_error.configure(text="")
+        self.items_error.configure(text="")
         self.update_totals()
-        self.controller.frames["dashboard"].refresh()

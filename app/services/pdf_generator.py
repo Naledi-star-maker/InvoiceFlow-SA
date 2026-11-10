@@ -24,10 +24,10 @@ from app.database.database import get_company_info, get_customer_by_id, get_invo
 from app.utils import format_currency
 
 
-PINK = colors.HexColor("#F4A6C6")
-PINK_LIGHT = colors.HexColor("#FDEFF3")
-TEXT_DARK = colors.HexColor("#3A2A30")
-TEXT_GREY = colors.HexColor("#6B5A60")
+PINK = colors.HexColor("#DB2777")
+PINK_LIGHT = colors.HexColor("#E8E8EC")
+TEXT_DARK = colors.HexColor("#0A0A0B")
+TEXT_GREY = colors.HexColor("#52525B")
 PAGE_WIDTH, PAGE_HEIGHT = A4
 MARGIN = 18 * mm
 TABLE_WIDTHS = (112 * mm, 18 * mm, 38 * mm)
@@ -87,7 +87,7 @@ def _build_invoice_story(invoice, company, customer):
     ))
     styles.add(ParagraphStyle(
         name="InvoiceTitle", parent=styles["Normal"], fontName="Helvetica-Bold",
-        fontSize=21, leading=25, textColor=PINK, alignment=TA_RIGHT
+        fontSize=21, leading=25, textColor=TEXT_DARK, alignment=TA_RIGHT
     ))
     styles.add(ParagraphStyle(
         name="InvoiceDetails", parent=styles["Normal"], fontSize=8.5,
@@ -95,7 +95,7 @@ def _build_invoice_story(invoice, company, customer):
     ))
     styles.add(ParagraphStyle(
         name="InvoiceSection", parent=styles["Normal"], fontName="Helvetica-Bold",
-        fontSize=9, leading=12, textColor=PINK, spaceAfter=4
+        fontSize=9, leading=12, textColor=TEXT_DARK, spaceAfter=4
     ))
     styles.add(ParagraphStyle(
         name="InvoiceCustomer", parent=styles["Normal"], fontName="Helvetica-Bold",
@@ -218,7 +218,7 @@ def _build_invoice_story(invoice, company, customer):
     )
     item_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), PINK),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [PINK_LIGHT, colors.white]),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAFAFA")]),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
@@ -236,8 +236,8 @@ def _build_invoice_story(invoice, company, customer):
         colWidths=(PAGE_WIDTH - 2 * MARGIN - 42 * mm, 42 * mm)
     )
     total_block.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PINK_LIGHT),
-        ("BOX", (0, 0), (-1, -1), 0.8, PINK),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("BOX", (0, 0), (-1, -1), 0.8, PINK_LIGHT),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
@@ -282,7 +282,7 @@ def _build_invoice_story(invoice, company, customer):
             hAlign="LEFT"
         )
         bank_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), PINK_LIGHT),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAFAFA")),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 8),
             ("RIGHTPADDING", (0, 0), (-1, -1), 8),
@@ -295,7 +295,7 @@ def _build_invoice_story(invoice, company, customer):
         "Thank you for your business!",
         ParagraphStyle(
             "InvoiceThanks", parent=styles["Normal"], fontName="Helvetica-Oblique",
-            fontSize=10, leading=13, textColor=PINK, alignment=TA_CENTER
+            fontSize=10, leading=13, textColor=TEXT_GREY, alignment=TA_CENTER
         )
     )
     signature_path = company.get("signature_path")
