@@ -316,9 +316,15 @@ def create_invoices_table():
             vat REAL NOT NULL,
             total REAL NOT NULL,
             notes TEXT,
+            due_date TEXT,
             FOREIGN KEY(customer_id) REFERENCES customers(id)
         )
     """)
+
+    cursor.execute("PRAGMA table_info(invoices)")
+    invoice_columns = {row[1] for row in cursor.fetchall()}
+    if "due_date" not in invoice_columns:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN due_date TEXT")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS invoice_number_sequences (
@@ -470,13 +476,13 @@ def create_invoice_with_items(data, items):
         cursor.execute("""
             INSERT INTO invoices (
                 invoice_number, customer_id, invoice_date, invoice_time,
-                subtotal, vat, total, notes
+                subtotal, vat, total, notes, due_date
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             invoice_number, data["customer_id"], data["invoice_date"],
             data["invoice_time"], data["subtotal"], data["vat"],
-            data["total"], data.get("notes", "")
+            data["total"], data.get("notes", ""), data.get("due_date", "")
         ))
         invoice_id = cursor.lastrowid
 
@@ -530,9 +536,15 @@ def get_all_invoices():
 
 def get_invoice_by_id(invoice_id):
     connection = get_connection()
+    connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
 
-    cursor.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,))
+    cursor.execute("""
+        SELECT id, invoice_number, customer_id, invoice_date, invoice_time,
+               subtotal, vat, total, notes, due_date
+        FROM invoices
+        WHERE id = ?
+    """, (invoice_id,))
     row = cursor.fetchone()
 
     if row is None:
@@ -540,15 +552,16 @@ def get_invoice_by_id(invoice_id):
         return None
 
     invoice = {
-        "id": row[0],
-        "invoice_number": row[1],
-        "customer_id": row[2],
-        "invoice_date": row[3],
-        "invoice_time": row[4],
-        "subtotal": row[5],
-        "vat": row[6],
-        "total": row[7],
-        "notes": row[8]
+        "id": row["id"],
+        "invoice_number": row["invoice_number"],
+        "customer_id": row["customer_id"],
+        "invoice_date": row["invoice_date"],
+        "invoice_time": row["invoice_time"],
+        "subtotal": row["subtotal"],
+        "vat": row["vat"],
+        "total": row["total"],
+        "notes": row["notes"],
+        "due_date": row["due_date"],
     }
 
     cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = ?", (invoice_id,))

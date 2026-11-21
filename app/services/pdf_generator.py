@@ -149,14 +149,13 @@ def _build_invoice_story(invoice, company, customer):
 
     invoice_details = [
         paragraph(f"Invoice #: {invoice.get('invoice_number') or '—'}"),
-        paragraph(f"Issue date: {_format_date(invoice.get('invoice_date')) or '—'}"),
     ]
     if invoice.get("due_date"):
         invoice_details.append(
-            paragraph(f"Due date: {_format_date(invoice.get('due_date'))}")
+            paragraph(
+                f"Invoice paid by: {_format_date(invoice.get('due_date'))}"
+            )
         )
-    if invoice.get("invoice_time"):
-        invoice_details.append(paragraph(f"Time: {invoice['invoice_time']}"))
 
     header = Table(
         [[business_block, [paragraph("INVOICE", "InvoiceTitle"), *invoice_details]]],

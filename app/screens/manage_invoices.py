@@ -1,5 +1,6 @@
 import math
 import sqlite3
+from datetime import date
 
 import customtkinter as ctk
 
@@ -26,6 +27,7 @@ from app.theme import (
     page_header,
     primary_button,
     secondary_button,
+    set_inline_error,
     toast,
 )
 from app.utils import format_currency
@@ -115,6 +117,14 @@ class ManageInvoiceFrame(ctk.CTkFrame):
             notes_card, "Notes", placeholder="Optional note for this invoice"
         )
         self.notes_entry.field_container.pack(fill="x", padx=16, pady=12)
+        due_date_card = card(self.right_panel)
+        due_date_card.pack(fill="x", pady=(12, 0))
+        self.due_date_entry = labeled_entry(
+            due_date_card, "Invoice paid by", placeholder="YYYY-MM-DD"
+        )
+        self.due_date_entry.field_container.pack(
+            fill="x", padx=16, pady=12
+        )
         self.regenerate_button = primary_button(
             self.right_panel, "Regenerate invoice",
             command=self.handle_regenerate,
@@ -187,6 +197,8 @@ class ManageInvoiceFrame(ctk.CTkFrame):
         self.notes_entry.delete(0, "end")
         if invoice.get("notes"):
             self.notes_entry.insert(0, invoice["notes"])
+        self.due_date_entry.delete(0, "end")
+        set_inline_error(self.due_date_entry, "")
         self.regenerate_button.configure(state="normal")
         self.update_totals()
 
@@ -271,6 +283,17 @@ class ManageInvoiceFrame(ctk.CTkFrame):
         if self.selected_invoice_id is None:
             self.status_label.configure(text="Load an invoice from the list first.")
             return
+        due_date = self.due_date_entry.get().strip()
+        if due_date:
+            try:
+                date.fromisoformat(due_date)
+            except ValueError:
+                set_inline_error(
+                    self.due_date_entry, "Enter a valid date in YYYY-MM-DD format."
+                )
+                return
+        set_inline_error(self.due_date_entry, "")
+
         items = self._collect_items()
         if not items:
             self.status_label.configure(text="Add at least one item with a description.")
@@ -295,7 +318,7 @@ class ManageInvoiceFrame(ctk.CTkFrame):
         notes = self.notes_entry.get().strip()
         try:
             new_invoice_id = duplicate_invoice(
-                self.selected_invoice_id, items, notes
+                self.selected_invoice_id, items, notes, due_date
             )
         except (ValueError, sqlite3.Error) as error:
             self.status_label.configure(text=f"The new invoice could not be saved: {error}")
@@ -325,6 +348,8 @@ class ManageInvoiceFrame(ctk.CTkFrame):
             row["frame"].destroy()
         self.item_rows = []
         self.notes_entry.delete(0, "end")
+        self.due_date_entry.delete(0, "end")
+        set_inline_error(self.due_date_entry, "")
         self.update_totals()
         self.regenerate_button.configure(state="disabled")
         self.load_invoice_list(self.search_entry.get())

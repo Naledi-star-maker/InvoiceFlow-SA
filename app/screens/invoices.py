@@ -1,5 +1,6 @@
 import math
 import sqlite3
+from datetime import date
 
 import customtkinter as ctk
 
@@ -99,6 +100,15 @@ class InvoiceFrame(ctk.CTkFrame):
             placeholder="Add a short note",
         )
         self.notes_entry.field_container.pack(fill="x", padx=16, pady=(0, 16))
+
+        due_date_card = card(self.scroll)
+        due_date_card.pack(fill="x", pady=(0, 16))
+        self.due_date_entry = labeled_entry(
+            due_date_card, "Invoice paid by", placeholder="YYYY-MM-DD",
+        )
+        self.due_date_entry.field_container.pack(
+            fill="x", padx=16, pady=16
+        )
 
         self.footer = ctk.CTkFrame(self, fg_color=SURFACE, border_color=BORDER, border_width=1)
         self.footer.pack(fill="x", side="bottom")
@@ -219,6 +229,17 @@ class InvoiceFrame(ctk.CTkFrame):
         self.totals_label.configure(text=f"Total: R {totals['total']:,.2f}")
 
     def handle_create(self):
+        due_date = self.due_date_entry.get().strip()
+        if due_date:
+            try:
+                date.fromisoformat(due_date)
+            except ValueError:
+                set_inline_error(
+                    self.due_date_entry, "Enter a valid date in YYYY-MM-DD format."
+                )
+                return
+        set_inline_error(self.due_date_entry, "")
+
         selected_name = self.customer_dropdown.get()
         customer = next(
             (item for item in self.customers if item["customer_name"] == selected_name),
@@ -254,7 +275,7 @@ class InvoiceFrame(ctk.CTkFrame):
 
         try:
             invoice_id = create_invoice(
-                customer["id"], items, self.notes_entry.get().strip()
+                customer["id"], items, self.notes_entry.get().strip(), due_date
             )
         except (ValueError, sqlite3.Error) as error:
             self.items_error.configure(text=f"Invoice could not be saved: {error}")
@@ -298,6 +319,8 @@ class InvoiceFrame(ctk.CTkFrame):
         self.item_rows[0]["quantity"].insert(0, "1")
         self.item_rows[0]["price"].insert(0, "0")
         self.notes_entry.delete(0, "end")
+        self.due_date_entry.delete(0, "end")
+        set_inline_error(self.due_date_entry, "")
         self.customer_error.configure(text="")
         self.items_error.configure(text="")
         self.update_totals()

@@ -116,7 +116,7 @@ def calculate_totals(items):
 # Create Invoice
 # =========================================================
 
-def create_invoice(customer_id, items, notes=""):
+def create_invoice(customer_id, items, notes="", due_date=""):
     """
     Creates a complete invoice.
 
@@ -141,7 +141,8 @@ def create_invoice(customer_id, items, notes=""):
         "subtotal": totals["subtotal"],
         "vat": 0,
         "total": totals["total"],
-        "notes": notes
+        "notes": notes,
+        "due_date": due_date,
     }
 
     invoice_items = [
@@ -160,7 +161,7 @@ def create_invoice(customer_id, items, notes=""):
 # Duplicate Invoice (for month-end resends)
 # =========================================================
 
-def duplicate_invoice(source_invoice_id, items, notes=None):
+def duplicate_invoice(source_invoice_id, items, notes=None, due_date=""):
     """
     Creates a NEW invoice for the same customer as an existing invoice,
     with a freshly generated invoice number, date and time.
@@ -178,4 +179,4 @@ def duplicate_invoice(source_invoice_id, items, notes=None):
     if notes is None:
         notes = source.get("notes", "") or ""
 
-    return create_invoice(source["customer_id"], items, notes)
+    return create_invoice(source["customer_id"], items, notes, due_date)
