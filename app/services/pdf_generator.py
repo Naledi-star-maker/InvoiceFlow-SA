@@ -1,6 +1,9 @@
 """Generate professional PDF invoices in the application's invoices folder."""
 
+import calendar
 import os
+import re
+from datetime import date
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -20,7 +23,12 @@ from reportlab.platypus import (
 )
 from reportlab.platypus import BaseDocTemplate, Frame
 
-from app.database.database import get_company_info, get_customer_by_id, get_invoice_by_id
+from app.database.database import (
+    get_company_info,
+    get_customer_by_id,
+    get_invoice_by_id,
+    update_invoice_pdf_path,
+)
 from app.utils import format_currency
 
 
@@ -30,12 +38,7 @@ TEXT_DARK = colors.HexColor("#0A0A0B")
 TEXT_GREY = colors.HexColor("#52525B")
 PAGE_WIDTH, PAGE_HEIGHT = A4
 MARGIN = 18 * mm
-TABLE_WIDTHS = (112 * mm, 18 * mm, 38 * mm)
-
-
-def _format_quantity(quantity):
-    value = float(quantity or 0)
-    return str(int(value)) if value.is_integer() else f"{value:g}"
+TABLE_WIDTHS = (130 * mm, 50 * mm)
 
 
 def _format_date(value):
@@ -49,19 +52,18 @@ def _format_date(value):
 
 
 def _invoice_table_rows(items):
-    """Prepare the exact three displayed columns without changing line totals."""
-    rows = [["Description", "Qty", "Total"]]
+    """Prepare description and amount rows while preserving legacy quantities."""
+    rows = [["Description", "Amount"]]
     for item in items:
         line_total = item.get("line_total")
         if line_total is None:
             line_total = (item.get("quantity") or 0) * (item.get("unit_price") or 0)
         rows.append([
             item.get("description") or "",
-            _format_quantity(item.get("quantity")),
             format_currency(line_total),
         ])
     if not items:
-        rows.append(["No line items recorded.", "", ""])
+        rows.append(["No line items recorded.", ""])
     return rows
 
 
@@ -195,16 +197,14 @@ def _build_invoice_story(invoice, company, customer):
     rows = _invoice_table_rows(invoice.get("items") or [])
     table_data = [[
         Paragraph("Description", header_style),
-        Paragraph("Qty", header_style),
-        Paragraph("Total", ParagraphStyle(
+        Paragraph("Amount", ParagraphStyle(
             "InvoiceTableHeaderRight", parent=header_style, alignment=TA_RIGHT
         )),
     ]]
-    for description, quantity, total in rows[1:]:
+    for description, amount in rows[1:]:
         table_data.append([
             paragraph(description, "InvoiceCell"),
-            paragraph(quantity, "InvoiceCellCenter"),
-            paragraph(total, "InvoiceCellRight"),
+            paragraph(amount, "InvoiceCellRight"),
         ])
 
     item_table = LongTable(
@@ -319,6 +319,19 @@ def _build_invoice_story(invoice, company, customer):
     return story
 
 
+def invoice_pdf_path(invoice, customer):
+    invoice_day = date.fromisoformat(invoice["invoice_date"])
+    month_folder = (
+        f"{invoice_day:%Y-%m} {calendar.month_name[invoice_day.month]}"
+    )
+    customer_name = re.sub(
+        r'[<>:"/\\|?*\x00-\x1f]', "_", customer["customer_name"]
+    ).strip(" .")
+    customer_name = customer_name[:120].rstrip(" .") or "Customer"
+    file_name = f"{invoice['invoice_number']} - {customer_name}.pdf"
+    return os.path.join("invoices", month_folder, file_name)
+
+
 def generate_invoice_pdf(invoice_id):
     """Generate and save an invoice PDF, returning its path."""
     invoice = get_invoice_by_id(invoice_id)
@@ -333,8 +346,9 @@ def generate_invoice_pdf(invoice_id):
     if customer is None:
         raise ValueError("Customer for this invoice could not be found.")
 
-    os.makedirs("invoices", exist_ok=True)
-    file_path = os.path.join("invoices", f"{invoice.get('invoice_number', invoice_id)}.pdf")
+    file_path = invoice_pdf_path(invoice, customer)
+    old_path = invoice.get("pdf_path")
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     document = BaseDocTemplate(
         file_path,
         pagesize=A4,
@@ -353,4 +367,12 @@ def generate_invoice_pdf(invoice_id):
         PageTemplate(id="invoice", frames=frame, onPage=_draw_page_footer)
     ])
     document.build(_build_invoice_story(invoice, company, customer))
+    update_invoice_pdf_path(invoice_id, file_path)
+    if old_path and os.path.normcase(os.path.abspath(old_path)) != os.path.normcase(
+        os.path.abspath(file_path)
+    ):
+        try:
+            os.remove(old_path)
+        except OSError:
+            pass
     return file_path

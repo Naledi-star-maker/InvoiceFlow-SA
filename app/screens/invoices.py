@@ -150,44 +150,34 @@ class InvoiceFrame(ctk.CTkFrame):
         row_frame = ctk.CTkFrame(self.items_scroll, fg_color=SURFACE)
         row_frame.pack(fill="x", pady=4, padx=4)
         row_frame.grid_columnconfigure(0, weight=5)
-        row_frame.grid_columnconfigure(1, weight=1)
-        row_frame.grid_columnconfigure(2, weight=2)
+        row_frame.grid_columnconfigure(1, weight=2)
 
         description = labeled_entry(row_frame, "Description")
         description.field_container.grid(
             row=0, column=0, sticky="ew", padx=(8, 8), pady=8
         )
-        quantity = labeled_entry(row_frame, "Qty")
-        quantity.field_container.grid(
-            row=0, column=1, sticky="ew", padx=(0, 8), pady=8
-        )
-        quantity.insert(0, "1")
-        price = labeled_entry(row_frame, "Unit price (R)")
-        price.field_container.grid(
-            row=0, column=2, sticky="ew", padx=(0, 8), pady=8
-        )
+        price = labeled_entry(row_frame, "Amount (R)")
+        price.field_container.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=8)
         price.insert(0, "0")
         line_total_label = ctk.CTkLabel(
             row_frame, text="R 0.00", text_color=TEXT,
             font=font(FONT_SIZE["body"], "bold"), anchor="e",
         )
-        line_total_label.grid(row=0, column=3, padx=8, pady=(28, 8), sticky="e")
+        line_total_label.grid(row=0, column=2, padx=8, pady=(28, 8), sticky="e")
         remove_button = ctk.CTkButton(
             row_frame, text="×", width=34, height=34,
             fg_color="transparent", hover_color="#F4F4F5",
             text_color=SECONDARY, corner_radius=8,
             command=lambda: self.remove_item_row(row_data),
         )
-        remove_button.grid(row=0, column=4, padx=8, pady=(24, 8))
+        remove_button.grid(row=0, column=3, padx=8, pady=(24, 8))
 
         row_data = {
             "frame": row_frame,
             "description": description,
-            "quantity": quantity,
             "price": price,
             "line_total_label": line_total_label,
         }
-        quantity.bind("<KeyRelease>", lambda _event: self.update_totals())
         price.bind("<KeyRelease>", lambda _event: self.update_totals())
         self.item_rows.append(row_data)
         self.update_totals()
@@ -208,15 +198,12 @@ class InvoiceFrame(ctk.CTkFrame):
             if not description:
                 continue
             try:
-                quantity = float(row["quantity"].get())
                 price = float(row["price"].get())
             except ValueError:
-                quantity = 0
                 price = 0
-            line_total = quantity * price
-            row["line_total_label"].configure(text=f"R {line_total:,.2f}")
+            row["line_total_label"].configure(text=f"R {price:,.2f}")
             items.append(
-                {"description": description, "quantity": quantity, "unit_price": price}
+                {"description": description, "quantity": 1, "unit_price": price}
             )
         return items
 
@@ -232,8 +219,10 @@ class InvoiceFrame(ctk.CTkFrame):
         due_date = self.due_date_entry.get().strip()
         if due_date:
             try:
-                date.fromisoformat(due_date)
+                parsed_due_date = date.fromisoformat(due_date)
             except ValueError:
+                parsed_due_date = None
+            if parsed_due_date is None or parsed_due_date.isoformat() != due_date:
                 set_inline_error(
                     self.due_date_entry, "Enter a valid date in YYYY-MM-DD format."
                 )
@@ -258,18 +247,15 @@ class InvoiceFrame(ctk.CTkFrame):
             (
                 row for row in self.item_rows
                 if row["description"].get().strip()
-                and (
-                    not self._is_positive_number(row["quantity"].get())
-                    or not self._is_nonnegative_number(row["price"].get())
-                )
+                and not self._is_nonnegative_number(row["price"].get())
             ),
             None,
         )
         if invalid_row is not None:
             self.items_error.configure(
-                text="Enter a quantity greater than zero and a valid non-negative unit price."
+                text="Enter a valid non-negative amount."
             )
-            set_inline_error(invalid_row["quantity"], "Use a number greater than zero.")
+            set_inline_error(invalid_row["price"], "Enter a valid non-negative amount.")
             return
         self.items_error.configure(text="")
 
@@ -291,16 +277,7 @@ class InvoiceFrame(ctk.CTkFrame):
             toast(self, f"Invoice created. PDF saved to {pdf_path}.", "success")
 
         self._reset_form()
-        self.controller.frames["dashboard"].refresh()
-        self.controller.frames["manage_invoices"].refresh()
-
-    @staticmethod
-    def _is_positive_number(value):
-        try:
-            number = float(value)
-            return math.isfinite(number) and number > 0
-        except ValueError:
-            return False
+        self._refresh_invoice_surfaces()
 
     @staticmethod
     def _is_nonnegative_number(value):
@@ -314,9 +291,8 @@ class InvoiceFrame(ctk.CTkFrame):
         for row in self.item_rows[1:]:
             row["frame"].destroy()
         self.item_rows = self.item_rows[:1]
-        for key in ("description", "quantity", "price"):
+        for key in ("description", "price"):
             self.item_rows[0][key].delete(0, "end")
-        self.item_rows[0]["quantity"].insert(0, "1")
         self.item_rows[0]["price"].insert(0, "0")
         self.notes_entry.delete(0, "end")
         self.due_date_entry.delete(0, "end")
@@ -324,3 +300,11 @@ class InvoiceFrame(ctk.CTkFrame):
         self.customer_error.configure(text="")
         self.items_error.configure(text="")
         self.update_totals()
+
+    def _refresh_invoice_surfaces(self):
+        for key in (
+            "dashboard", "reports", "manage_invoices", "payments", "budget",
+        ):
+            frame = self.controller.frames.get(key)
+            if frame is not None and hasattr(frame, "refresh"):
+                frame.refresh()

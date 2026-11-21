@@ -330,14 +330,16 @@ def create_invoices_table():
             total REAL NOT NULL,
             notes TEXT,
             due_date TEXT,
+            pdf_path TEXT,
             FOREIGN KEY(customer_id) REFERENCES customers(id)
         )
     """)
 
     cursor.execute("PRAGMA table_info(invoices)")
     invoice_columns = {row[1] for row in cursor.fetchall()}
-    if "due_date" not in invoice_columns:
-        cursor.execute("ALTER TABLE invoices ADD COLUMN due_date TEXT")
+    for column in ("due_date", "pdf_path"):
+        if column not in invoice_columns:
+            cursor.execute(f"ALTER TABLE invoices ADD COLUMN {column} TEXT")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS invoice_number_sequences (
@@ -1198,13 +1200,14 @@ def create_invoice_with_items(data, items):
         cursor.execute("""
             INSERT INTO invoices (
                 invoice_number, customer_id, invoice_date, invoice_time,
-                subtotal, vat, total, notes, due_date
+                subtotal, vat, total, notes, due_date, pdf_path
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             invoice_number, data["customer_id"], data["invoice_date"],
             data["invoice_time"], data["subtotal"], data["vat"],
-            data["total"], data.get("notes", ""), data.get("due_date", "")
+            data["total"], data.get("notes", ""), data.get("due_date", ""),
+            data.get("pdf_path"),
         ))
         invoice_id = cursor.lastrowid
 
@@ -1229,13 +1232,64 @@ def create_invoice_with_items(data, items):
         connection.close()
 
 
+def update_invoice(invoice_id, data, items):
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute("""
+            UPDATE invoices
+            SET customer_id = ?, subtotal = ?, vat = ?, total = ?,
+                notes = ?, due_date = ?
+            WHERE id = ?
+        """, (
+            data["customer_id"], data["subtotal"], data["vat"], data["total"],
+            data.get("notes", ""), data.get("due_date", ""), invoice_id,
+        ))
+        if cursor.rowcount == 0:
+            raise ValueError(f"No invoice found with id {invoice_id}.")
+        cursor.execute("DELETE FROM invoice_items WHERE invoice_id = ?", (invoice_id,))
+        cursor.executemany("""
+            INSERT INTO invoice_items (
+                invoice_id, description, quantity, unit_price, line_total
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, [
+            (
+                invoice_id, item["description"], item.get("quantity", 1),
+                item["unit_price"], item["line_total"],
+            )
+            for item in items
+        ])
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def update_invoice_pdf_path(invoice_id, pdf_path):
+    connection = get_connection()
+    try:
+        cursor = connection.execute(
+            "UPDATE invoices SET pdf_path = ? WHERE id = ?",
+            (pdf_path, invoice_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"No invoice found with id {invoice_id}.")
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def get_all_invoices():
     connection = get_connection()
     cursor = connection.cursor()
 
     cursor.execute("""
         SELECT invoices.id, invoices.invoice_number, customers.customer_name,
-               invoices.invoice_date, invoices.total
+               invoices.invoice_date, invoices.total, invoices.pdf_path
         FROM invoices
         JOIN customers ON invoices.customer_id = customers.id
         ORDER BY invoices.id DESC
@@ -1250,7 +1304,8 @@ def get_all_invoices():
             "invoice_number": row[1],
             "customer_name": row[2],
             "invoice_date": row[3],
-            "total": row[4]
+            "total": row[4],
+            "pdf_path": row[5],
         })
 
     return invoices
@@ -1263,7 +1318,7 @@ def get_invoice_by_id(invoice_id):
 
     cursor.execute("""
         SELECT id, invoice_number, customer_id, invoice_date, invoice_time,
-               subtotal, vat, total, notes, due_date
+               subtotal, vat, total, notes, due_date, pdf_path
         FROM invoices
         WHERE id = ?
     """, (invoice_id,))
@@ -1284,6 +1339,7 @@ def get_invoice_by_id(invoice_id):
         "total": row["total"],
         "notes": row["notes"],
         "due_date": row["due_date"],
+        "pdf_path": row["pdf_path"],
     }
 
     cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = ?", (invoice_id,))
@@ -1398,13 +1454,67 @@ def get_month_payment_summary(year, month):
 
 def delete_invoice(invoice_id):
     connection = get_connection()
-    cursor = connection.cursor()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute("SELECT pdf_path FROM invoices WHERE id = ?", (invoice_id,))
+        row = cursor.fetchone()
+        if row is None:
+            raise ValueError(f"No invoice found with id {invoice_id}.")
+        pdf_path = row[0]
+        if cursor.execute("""
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'payments'
+        """).fetchone():
+            cursor.execute("DELETE FROM payments WHERE invoice_id = ?", (invoice_id,))
+        cursor.execute("DELETE FROM invoice_items WHERE invoice_id = ?", (invoice_id,))
+        cursor.execute("DELETE FROM invoices WHERE id = ?", (invoice_id,))
+        connection.commit()
+        return pdf_path
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
-    cursor.execute("DELETE FROM invoice_items WHERE invoice_id = ?", (invoice_id,))
-    cursor.execute("DELETE FROM invoices WHERE id = ?", (invoice_id,))
 
-    connection.commit()
-    connection.close()
+def get_invoice_count_and_total():
+    connection = get_connection()
+    try:
+        return connection.execute(
+            "SELECT COUNT(*), COALESCE(SUM(total), 0) FROM invoices"
+        ).fetchone()
+    finally:
+        connection.close()
+
+
+def delete_all_invoices(reset_numbering=False):
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute("SELECT pdf_path FROM invoices WHERE pdf_path IS NOT NULL")
+        pdf_paths = [row[0] for row in cursor.fetchall()]
+        if cursor.execute("""
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'payments'
+        """).fetchone():
+            cursor.execute("DELETE FROM payments")
+        cursor.execute("DELETE FROM invoice_items")
+        cursor.execute("DELETE FROM invoices")
+        if reset_numbering:
+            if cursor.execute("""
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'invoice_number_sequences'
+            """).fetchone():
+                cursor.execute("DELETE FROM invoice_number_sequences")
+        connection.commit()
+        return pdf_paths
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def search_invoices(keyword):
@@ -1414,7 +1524,7 @@ def search_invoices(keyword):
     search_term = f"%{keyword}%"
     cursor.execute("""
         SELECT invoices.id, invoices.invoice_number, customers.customer_name,
-               invoices.invoice_date, invoices.total
+               invoices.invoice_date, invoices.total, invoices.pdf_path
         FROM invoices
         JOIN customers ON invoices.customer_id = customers.id
         WHERE invoices.invoice_number LIKE ? OR customers.customer_name LIKE ?
@@ -1432,7 +1542,8 @@ def search_invoices(keyword):
             "invoice_number": row[1],
             "customer_name": row[2],
             "invoice_date": row[3],
-            "total": row[4]
+            "total": row[4],
+            "pdf_path": row[5],
         })
 
     return invoices

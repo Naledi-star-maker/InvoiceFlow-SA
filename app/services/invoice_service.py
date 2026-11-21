@@ -103,7 +103,7 @@ def calculate_totals(items):
     subtotal = 0
 
     for item in items:
-        line_total = item["quantity"] * item["unit_price"]
+        line_total = item.get("quantity", 1) * item["unit_price"]
         subtotal += line_total
 
     return {
@@ -132,7 +132,15 @@ def create_invoice(customer_id, items, notes="", due_date=""):
 
     invoice_date = get_current_date()
     invoice_time = get_current_time()
-    totals = calculate_totals(items)
+    normalized_items = [
+        {
+            "description": item["description"],
+            "quantity": 1,
+            "unit_price": item.get("amount", item.get("quantity", 1) * item["unit_price"]),
+        }
+        for item in items
+    ]
+    totals = calculate_totals(normalized_items)
 
     invoice_data = {
         "customer_id": customer_id,
@@ -148,11 +156,10 @@ def create_invoice(customer_id, items, notes="", due_date=""):
     invoice_items = [
         {
             "description": item["description"],
-            "quantity": item["quantity"],
-            "unit_price": item["unit_price"],
-            "line_total": item["quantity"] * item["unit_price"]
+            **item,
+            "line_total": item["unit_price"],
         }
-        for item in items
+        for item in normalized_items
     ]
     return create_invoice_with_items(invoice_data, invoice_items)
 
@@ -161,7 +168,7 @@ def create_invoice(customer_id, items, notes="", due_date=""):
 # Duplicate Invoice (for month-end resends)
 # =========================================================
 
-def duplicate_invoice(source_invoice_id, items, notes=None, due_date=""):
+def duplicate_invoice(source_invoice_id, items, notes=None, due_date="", customer_id=None):
     """
     Creates a NEW invoice for the same customer as an existing invoice,
     with a freshly generated invoice number, date and time.
@@ -179,4 +186,7 @@ def duplicate_invoice(source_invoice_id, items, notes=None, due_date=""):
     if notes is None:
         notes = source.get("notes", "") or ""
 
-    return create_invoice(source["customer_id"], items, notes, due_date)
+    return create_invoice(
+        customer_id if customer_id is not None else source["customer_id"],
+        items, notes, due_date,
+    )
