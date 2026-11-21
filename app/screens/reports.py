@@ -131,6 +131,10 @@ class ReportsFrame(ctk.CTkFrame):
             accent=accent,
         )
         comparison.pack(fill="x")
+        self.scroll.update_idletasks()
+        self.scroll._parent_canvas.configure(
+            scrollregion=self.scroll._parent_canvas.bbox("all")
+        )
 
     def _render_cards(self, values):
         for child in self.cards_frame.winfo_children():
@@ -170,8 +174,7 @@ class ReportsFrame(ctk.CTkFrame):
             font=font(FONT_SIZE["heading"], "bold"), anchor="w",
         ).pack(fill="x", pady=(20, 8))
 
-    @staticmethod
-    def _render_chart(parent, monthly):
+    def _render_chart(self, parent, monthly):
         chart_frame = ctk.CTkFrame(parent, fg_color=SURFACE)
         chart_frame.pack(fill="x", padx=12, pady=12)
         figure = Figure(figsize=(8.8, 3.2), dpi=100)
@@ -191,9 +194,20 @@ class ReportsFrame(ctk.CTkFrame):
         figure.tight_layout()
         chart = FigureCanvasTkAgg(figure, master=chart_frame)
         chart.draw()
-        chart.get_tk_widget().pack(fill="x")
+        chart_widget = chart.get_tk_widget()
+        chart_widget.pack(fill="x")
+        chart_widget.bind("<MouseWheel>", self._scroll_chart_wheel)
+
         def resize_chart(event):
-            figure.set_size_inches(max(event.width / 100, 4), 3.2, forward=True)
-            chart.draw_idle()
+            if event.width <= 0:
+                return
+            width = max(event.width / 100, 4)
+            if abs(width - figure.get_figwidth()) >= 0.05:
+                figure.set_size_inches(width, 3.2, forward=True)
+                chart.draw_idle()
 
         chart_frame.bind("<Configure>", resize_chart)
+
+    def _scroll_chart_wheel(self, event):
+        self.scroll._parent_canvas.yview_scroll(int(-event.delta / 120), "units")
+        return "break"

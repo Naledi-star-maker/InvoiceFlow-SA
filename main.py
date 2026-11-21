@@ -5,15 +5,21 @@ from PIL import Image
 
 from app.database.database import (
     create_customers_table,
+    create_budget_tables,
     create_invoice_items_table,
     create_invoices_table,
+    create_employee_tables,
+    create_payments_table,
     create_tables,
     get_company_info,
 )
 from app.screens.customers import CustomerFrame
 from app.screens.dashboard import DashboardFrame
+from app.screens.budget import BudgetFrame
+from app.screens.employees import EmployeesFrame
 from app.screens.invoices import InvoiceFrame
 from app.screens.manage_invoices import ManageInvoiceFrame
+from app.screens.payments import PaymentsFrame
 from app.screens.reports import ReportsFrame
 from app.screens.settings import SettingsFrame
 from app.theme import (
@@ -38,6 +44,11 @@ class MainApp(ctk.CTk):
         ("OVERVIEW", (("▦", "Dashboard", "dashboard"), ("▤", "Reports", "reports"))),
         ("BILLING", (("＋", "New Invoice", "invoices"), ("≡", "Manage Invoices", "manage_invoices"))),
         ("PEOPLE", (("◉", "Customers", "customers"),)),
+        ("BUSINESS", (
+            ("◷", "Budget & Expenses", "budget"),
+            ("$", "Payments", "payments"),
+            ("♙", "Employees", "employees"),
+        )),
     )
 
     def __init__(self):
@@ -77,6 +88,9 @@ class MainApp(ctk.CTk):
             (ManageInvoiceFrame, "manage_invoices"),
             (CustomerFrame, "customers"),
             (ReportsFrame, "reports"),
+            (BudgetFrame, "budget"),
+            (PaymentsFrame, "payments"),
+            (EmployeesFrame, "employees"),
             (SettingsFrame, "settings"),
         ):
             frame = frame_class(self.container, self)
@@ -215,5 +229,8 @@ if __name__ == "__main__":
     create_customers_table()
     create_invoices_table()
     create_invoice_items_table()
+    create_payments_table()
+    create_budget_tables()
+    create_employee_tables()
     app = MainApp()
     app.mainloop()
