@@ -55,8 +55,7 @@ Small business owners in South Africa often rely on manual, time-consuming metho
 
 ## 👩‍💻 Author
 
-**Naledi**, built as a university portfolio project: a real tool for a real small business.
-
+**Naledi**, built as a university portfolio project: a real tool for a real small business with the use of AI
 ## 📄 License
 
 Copyright © 2026 Naledi. **All rights reserved.**
