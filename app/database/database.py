@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 DATABASE_PATH = "database/invoiceflow.db"
 UIF_MONTHLY_GROSS_CEILING = 17712.0
+EMPLOYEE_IDENTIFICATION_TYPES = ("SA ID", "Passport")
 DEFAULT_EXPENSE_CATEGORIES = (
     "Wages",
     "Car",
@@ -435,6 +436,7 @@ def create_employee_tables():
             surname TEXT NOT NULL,
             cell_number TEXT NOT NULL,
             sa_id_number TEXT NOT NULL,
+            identification_type TEXT NOT NULL DEFAULT 'SA ID',
             start_date TEXT NOT NULL,
             id_copy_path TEXT,
             contract_path TEXT,
@@ -448,6 +450,7 @@ def create_employee_tables():
         ("id_copy_path", "TEXT"),
         ("contract_path", "TEXT"),
         ("hourly_rate", "REAL NOT NULL DEFAULT 0"),
+        ("identification_type", "TEXT NOT NULL DEFAULT 'SA ID'"),
     ):
         if column not in employee_columns:
             cursor.execute(f"ALTER TABLE employees ADD COLUMN {column} {definition}")
@@ -526,20 +529,34 @@ def create_employee_tables():
     connection.close()
 
 
-def _validate_employee_data(name, surname, cell_number, sa_id_number, start_date):
+def _validate_employee_data(
+    name, surname, cell_number, sa_id_number, start_date,
+    identification_type="SA ID",
+):
     if not name.strip() or not surname.strip():
         raise ValueError("Employee name and surname are required.")
     if not cell_number.strip():
         raise ValueError("Cell number is required.")
-    if not sa_id_number.isdigit() or len(sa_id_number) != 13:
+    if identification_type not in EMPLOYEE_IDENTIFICATION_TYPES:
+        raise ValueError("Choose SA ID or Passport as the identification type.")
+    if identification_type == "SA ID" and (
+        not sa_id_number.isdigit() or len(sa_id_number) != 13
+    ):
         raise ValueError("South African ID number must contain 13 digits.")
+    if identification_type == "Passport" and not sa_id_number.strip():
+        raise ValueError("Passport number is required.")
     parsed_date = date.fromisoformat(start_date)
     if parsed_date.isoformat() != start_date:
         raise ValueError("Start date must use YYYY-MM-DD format.")
 
 
-def add_employee(name, surname, cell_number, sa_id_number, start_date):
-    _validate_employee_data(name, surname, cell_number, sa_id_number, start_date)
+def add_employee(
+    name, surname, cell_number, sa_id_number, start_date,
+    identification_type="SA ID",
+):
+    _validate_employee_data(
+        name, surname, cell_number, sa_id_number, start_date, identification_type
+    )
     connection = get_connection()
     try:
         cursor = connection.cursor()
@@ -554,12 +571,13 @@ def add_employee(name, surname, cell_number, sa_id_number, start_date):
         employee_number = f"EMP-{next_number:03d}"
         cursor.execute("""
             INSERT INTO employees (
-                employee_id, name, surname, cell_number, sa_id_number, start_date
+                employee_id, name, surname, cell_number, sa_id_number,
+                identification_type, start_date
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
             employee_number, name.strip(), surname.strip(), cell_number.strip(),
-            sa_id_number, start_date,
+            sa_id_number.strip(), identification_type, start_date,
         ))
         connection.commit()
         return cursor.lastrowid
@@ -575,7 +593,8 @@ def get_all_employees():
     try:
         rows = connection.execute("""
             SELECT id, employee_id, name, surname, cell_number, sa_id_number,
-                   start_date, id_copy_path, contract_path, hourly_rate
+                   identification_type, start_date, id_copy_path, contract_path,
+                   hourly_rate
             FROM employees
             ORDER BY surname COLLATE NOCASE, name COLLATE NOCASE
         """).fetchall()
@@ -583,8 +602,9 @@ def get_all_employees():
             {
                 "id": row[0], "employee_id": row[1], "name": row[2],
                 "surname": row[3], "cell_number": row[4], "sa_id_number": row[5],
-                "start_date": row[6], "id_copy_path": row[7],
-                "contract_path": row[8], "hourly_rate": row[9],
+                "identification_type": row[6], "start_date": row[7],
+                "id_copy_path": row[8], "contract_path": row[9],
+                "hourly_rate": row[10],
             }
             for row in rows
         ]
@@ -599,18 +619,23 @@ def get_employee_by_id(employee_row_id):
     )
 
 
-def update_employee(employee_row_id, name, surname, cell_number, sa_id_number, start_date):
-    _validate_employee_data(name, surname, cell_number, sa_id_number, start_date)
+def update_employee(
+    employee_row_id, name, surname, cell_number, sa_id_number, start_date,
+    identification_type="SA ID",
+):
+    _validate_employee_data(
+        name, surname, cell_number, sa_id_number, start_date, identification_type
+    )
     connection = get_connection()
     try:
         cursor = connection.execute("""
             UPDATE employees
             SET name = ?, surname = ?, cell_number = ?, sa_id_number = ?,
-                start_date = ?
+                identification_type = ?, start_date = ?
             WHERE id = ?
         """, (
-            name.strip(), surname.strip(), cell_number.strip(), sa_id_number,
-            start_date, employee_row_id,
+            name.strip(), surname.strip(), cell_number.strip(), sa_id_number.strip(),
+            identification_type, start_date, employee_row_id,
         ))
         if cursor.rowcount == 0:
             raise ValueError(f"No employee found with id {employee_row_id}.")

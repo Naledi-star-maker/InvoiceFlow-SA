@@ -17,7 +17,7 @@ It calls functions in database.py.
 =========================================================
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 # Import database functions
 from app.database.database import (
@@ -116,21 +116,28 @@ def calculate_totals(items):
 # Create Invoice
 # =========================================================
 
-def create_invoice(customer_id, items, notes="", due_date=""):
+def create_invoice(customer_id, items, notes="", due_date="", invoice_date=None):
     """
     Creates a complete invoice.
 
     This function:
 
     • Generates invoice number
-    • Generates date
+    • Uses the selected invoice date
     • Generates time
     • Calculates totals
     • Saves invoice
     • Saves invoice items
     """
 
-    invoice_date = get_current_date()
+    if invoice_date is None:
+        invoice_date = get_current_date()
+    try:
+        parsed_invoice_date = date.fromisoformat(invoice_date)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Invoice date must use YYYY-MM-DD format.") from error
+    if parsed_invoice_date.isoformat() != invoice_date:
+        raise ValueError("Invoice date must use YYYY-MM-DD format.")
     invoice_time = get_current_time()
     normalized_items = [
         {

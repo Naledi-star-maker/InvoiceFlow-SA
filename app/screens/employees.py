@@ -10,6 +10,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 from app.database.database import (
+    EMPLOYEE_IDENTIFICATION_TYPES,
     UIF_MONTHLY_GROSS_CEILING,
     add_employee,
     add_salary_advance,
@@ -243,7 +244,9 @@ class EmployeesFrame(ctk.CTkFrame):
             self.employee_detail,
             text=(
                 f"{employee['employee_id']}  ·  {employee['name']} "
-                f"{employee['surname']}  ·  SA ID {employee['sa_id_number']}  "
+                f"{employee['surname']}  ·  "
+                f"{employee.get('identification_type', 'SA ID')} "
+                f"{employee['sa_id_number']}  "
                 f"·  Started {employee['start_date']}"
             ),
             text_color=SECONDARY, anchor="w", font=font(FONT_SIZE["small"]),
@@ -269,7 +272,7 @@ class EmployeesFrame(ctk.CTkFrame):
     def _open_employee_dialog(self, employee=None):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Edit employee" if employee else "Add employee")
-        dialog.geometry("440x460")
+        dialog.geometry("440x500")
         dialog.resizable(False, False)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
@@ -280,7 +283,25 @@ class EmployeesFrame(ctk.CTkFrame):
             ("name", "Name", ""),
             ("surname", "Surname", ""),
             ("cell_number", "Cell number", ""),
-            ("sa_id_number", "SA ID number (13 digits)", ""),
+        ):
+            entry = labeled_entry(form, label, placeholder=placeholder)
+            entry.field_container.pack(fill="x", pady=(0, 10))
+            if employee:
+                entry.insert(0, employee[key])
+            fields[key] = entry
+        ctk.CTkLabel(
+            form, text="Identification type", text_color=SECONDARY, anchor="w",
+            font=font(FONT_SIZE["label"], "bold"),
+        ).pack(fill="x", pady=(0, 4))
+        identification_type = ctk.CTkOptionMenu(
+            form, values=list(EMPLOYEE_IDENTIFICATION_TYPES),
+        )
+        identification_type.set(
+            employee.get("identification_type", "SA ID") if employee else "SA ID"
+        )
+        identification_type.pack(fill="x", pady=(0, 10))
+        for key, label, placeholder in (
+            ("sa_id_number", "ID or passport number", ""),
             ("start_date", "Start date", "YYYY-MM-DD"),
         ):
             entry = labeled_entry(form, label, placeholder=placeholder)
@@ -301,8 +322,17 @@ class EmployeesFrame(ctk.CTkFrame):
 
         def save():
             values = {key: entry.get().strip() for key, entry in fields.items()}
-            if not values["sa_id_number"].isdigit() or len(values["sa_id_number"]) != 13:
-                set_inline_error(fields["sa_id_number"], "Enter exactly 13 digits.")
+            selected_identification_type = identification_type.get()
+            identifier = values["sa_id_number"]
+            if selected_identification_type == "SA ID" and (
+                not identifier.isdigit() or len(identifier) != 13
+            ):
+                set_inline_error(
+                    fields["sa_id_number"], "Enter exactly 13 digits for an SA ID."
+                )
+                return
+            if selected_identification_type == "Passport" and not identifier:
+                set_inline_error(fields["sa_id_number"], "Enter a passport number.")
                 return
             set_inline_error(fields["sa_id_number"], "")
             try:
@@ -310,12 +340,13 @@ class EmployeesFrame(ctk.CTkFrame):
                     update_employee(
                         employee["id"], values["name"], values["surname"],
                         values["cell_number"], values["sa_id_number"],
-                        values["start_date"],
+                        values["start_date"], selected_identification_type,
                     )
                 else:
                     add_employee(
                         values["name"], values["surname"], values["cell_number"],
                         values["sa_id_number"], values["start_date"],
+                        selected_identification_type,
                     )
             except (ValueError, sqlite3.Error) as exception:
                 error.configure(text=str(exception))

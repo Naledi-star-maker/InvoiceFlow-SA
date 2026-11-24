@@ -152,10 +152,14 @@ def _build_invoice_story(invoice, company, customer):
     invoice_details = [
         paragraph(f"Invoice #: {invoice.get('invoice_number') or '—'}"),
     ]
+    if invoice.get("invoice_date"):
+        invoice_details.append(
+            paragraph(f"Invoice date: {_format_date(invoice.get('invoice_date'))}")
+        )
     if invoice.get("due_date"):
         invoice_details.append(
             paragraph(
-                f"Invoice paid by: {_format_date(invoice.get('due_date'))}"
+                f"Due date: {_format_date(invoice.get('due_date'))}"
             )
         )
 

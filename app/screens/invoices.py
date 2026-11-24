@@ -1,3 +1,4 @@
+import calendar
 import math
 import sqlite3
 from datetime import date
@@ -25,6 +26,83 @@ from app.theme import (
     toast,
     font,
 )
+
+
+class _DatePickerDialog(ctk.CTkToplevel):
+    def __init__(self, parent, initial_date, on_select):
+        super().__init__(parent)
+        self.on_select = on_select
+        self.title("Choose invoice date")
+        self.geometry("360x410")
+        self.resizable(False, False)
+        self.transient(parent.winfo_toplevel())
+        self.grab_set()
+
+        content = ctk.CTkFrame(self, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=16, pady=16)
+        ctk.CTkLabel(
+            content, text="Choose invoice date", text_color=TEXT,
+            font=font(FONT_SIZE["heading"], "bold"),
+        ).pack(anchor="w", pady=(0, 12))
+
+        selectors = ctk.CTkFrame(content, fg_color="transparent")
+        selectors.pack(fill="x", pady=(0, 10))
+        selectors.grid_columnconfigure((0, 1), weight=1)
+        self.month_selector = ctk.CTkOptionMenu(
+            selectors,
+            values=[calendar.month_name[month] for month in range(1, 13)],
+            command=lambda _value: self._render_days(),
+        )
+        self.month_selector.set(calendar.month_name[initial_date.month])
+        self.month_selector.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.year_selector = ctk.CTkOptionMenu(
+            selectors,
+            values=[str(year) for year in range(1900, 2101)],
+            command=lambda _value: self._render_days(),
+        )
+        self.year_selector.set(str(initial_date.year))
+        self.year_selector.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        self.day_grid = ctk.CTkFrame(content, fg_color="transparent")
+        self.day_grid.pack(fill="both", expand=True)
+        for column, weekday in enumerate(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")):
+            self.day_grid.grid_columnconfigure(column, weight=1)
+            ctk.CTkLabel(
+                self.day_grid, text=weekday, text_color=SECONDARY,
+                font=font(FONT_SIZE["small"], "bold"),
+            ).grid(row=0, column=column, pady=(0, 4))
+
+        secondary_button(
+            content, "Cancel", command=self.destroy, width=90, height=32,
+        ).pack(anchor="e", pady=(8, 0))
+        self._render_days()
+
+    def _render_days(self):
+        for child in self.day_grid.winfo_children():
+            if int(child.grid_info().get("row", 0)) > 0:
+                child.destroy()
+
+        month = list(calendar.month_name).index(self.month_selector.get())
+        year = int(self.year_selector.get())
+        for week_index, week in enumerate(calendar.monthcalendar(year, month), start=1):
+            for weekday, day in enumerate(week):
+                if day:
+                    secondary_button(
+                        self.day_grid,
+                        str(day),
+                        command=lambda selected_day=day: self._select_day(
+                            year, month, selected_day
+                        ),
+                        width=34,
+                        height=32,
+                    ).grid(
+                        row=week_index, column=weekday, padx=2, pady=2,
+                        sticky="nsew",
+                    )
+
+    def _select_day(self, year, month, day):
+        self.on_select(date(year, month, day).isoformat())
+        self.destroy()
 
 
 class InvoiceFrame(ctk.CTkFrame):
@@ -101,14 +179,19 @@ class InvoiceFrame(ctk.CTkFrame):
         )
         self.notes_entry.field_container.pack(fill="x", padx=16, pady=(0, 16))
 
-        due_date_card = card(self.scroll)
-        due_date_card.pack(fill="x", pady=(0, 16))
-        self.due_date_entry = labeled_entry(
-            due_date_card, "Invoice paid by", placeholder="YYYY-MM-DD",
+        invoice_date_card = card(self.scroll)
+        invoice_date_card.pack(fill="x", pady=(0, 16))
+        self.invoice_date_entry = labeled_entry(
+            invoice_date_card, "Invoice date *", placeholder="Choose a date",
+            state="readonly",
         )
-        self.due_date_entry.field_container.pack(
+        self.invoice_date_entry.field_container.pack(
             fill="x", padx=16, pady=16
         )
+        secondary_button(
+            self.invoice_date_entry.field_container, "Choose date",
+            command=self._open_invoice_date_picker, width=120, height=32,
+        ).pack(anchor="e", pady=(8, 0))
 
         self.footer = ctk.CTkFrame(self, fg_color=SURFACE, border_color=BORDER, border_width=1)
         self.footer.pack(fill="x", side="bottom")
@@ -145,6 +228,21 @@ class InvoiceFrame(ctk.CTkFrame):
         self.customer_dropdown.set(
             customer_names[0] if customer_names else "No customers yet — add one first"
         )
+
+    def _open_invoice_date_picker(self):
+        try:
+            initial_date = date.fromisoformat(self.invoice_date_entry.get())
+        except ValueError:
+            initial_date = date.today()
+        _DatePickerDialog(self, initial_date, self._set_invoice_date)
+
+    def _set_invoice_date(self, value):
+        self.invoice_date_entry.configure(state="normal")
+        self.invoice_date_entry.delete(0, "end")
+        if value:
+            self.invoice_date_entry.insert(0, value)
+        self.invoice_date_entry.configure(state="readonly")
+        set_inline_error(self.invoice_date_entry, "")
 
     def add_item_row(self):
         row_frame = ctk.CTkFrame(self.items_scroll, fg_color=SURFACE)
@@ -216,18 +314,15 @@ class InvoiceFrame(ctk.CTkFrame):
         self.totals_label.configure(text=f"Total: R {totals['total']:,.2f}")
 
     def handle_create(self):
-        due_date = self.due_date_entry.get().strip()
-        if due_date:
-            try:
-                parsed_due_date = date.fromisoformat(due_date)
-            except ValueError:
-                parsed_due_date = None
-            if parsed_due_date is None or parsed_due_date.isoformat() != due_date:
-                set_inline_error(
-                    self.due_date_entry, "Enter a valid date in YYYY-MM-DD format."
-                )
-                return
-        set_inline_error(self.due_date_entry, "")
+        invoice_date = self.invoice_date_entry.get().strip()
+        try:
+            parsed_invoice_date = date.fromisoformat(invoice_date)
+        except ValueError:
+            parsed_invoice_date = None
+        if parsed_invoice_date is None or parsed_invoice_date.isoformat() != invoice_date:
+            set_inline_error(self.invoice_date_entry, "Choose a valid invoice date.")
+            return
+        set_inline_error(self.invoice_date_entry, "")
 
         selected_name = self.customer_dropdown.get()
         customer = next(
@@ -261,7 +356,8 @@ class InvoiceFrame(ctk.CTkFrame):
 
         try:
             invoice_id = create_invoice(
-                customer["id"], items, self.notes_entry.get().strip(), due_date
+                customer["id"], items, self.notes_entry.get().strip(),
+                invoice_date=invoice_date,
             )
         except (ValueError, sqlite3.Error) as error:
             self.items_error.configure(text=f"Invoice could not be saved: {error}")
@@ -295,8 +391,7 @@ class InvoiceFrame(ctk.CTkFrame):
             self.item_rows[0][key].delete(0, "end")
         self.item_rows[0]["price"].insert(0, "0")
         self.notes_entry.delete(0, "end")
-        self.due_date_entry.delete(0, "end")
-        set_inline_error(self.due_date_entry, "")
+        self._set_invoice_date("")
         self.customer_error.configure(text="")
         self.items_error.configure(text="")
         self.update_totals()

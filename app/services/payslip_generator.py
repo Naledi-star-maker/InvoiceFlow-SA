@@ -124,7 +124,10 @@ def generate_payslip(employee_row_id, month):
         Spacer(1, 8 * mm),
         paragraph(f"Employee: {employee['name']} {employee['surname']}"),
         paragraph(f"Employee ID: {employee['employee_id']}"),
-        paragraph(f"SA ID number: {employee['sa_id_number']}"),
+        paragraph(
+            f"{employee.get('identification_type', 'SA ID')} number: "
+            f"{employee['sa_id_number']}"
+        ),
         paragraph(f"Pay date: {pay['pay_date']}"),
         Paragraph("Earnings", styles["PayslipSection"]),
     ]

@@ -146,7 +146,7 @@ class ManageInvoiceFrame(ctk.CTkFrame):
         due_date_card = card(self.right_panel)
         due_date_card.pack(fill="x", pady=(12, 0))
         self.due_date_entry = labeled_entry(
-            due_date_card, "Invoice paid by", placeholder="YYYY-MM-DD"
+            due_date_card, "Due date", placeholder="YYYY-MM-DD"
         )
         self.due_date_entry.field_container.pack(
             fill="x", padx=16, pady=12
